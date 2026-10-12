@@ -18,6 +18,9 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+#: Abtastrate, die Whisper erwartet.
+WHISPER_RATE = 16_000
+
 
 class SpeechToText:
     def __init__(
@@ -62,22 +65,23 @@ class SpeechToText:
         return " ".join(segment.text.strip() for segment in segments).strip()
 
     def transcribe_bytes(self, data: bytes, suffix: str = ".webm") -> str:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
-            handle.write(data)
-            path = handle.name
-        try:
-            return self.transcribe(path)
-        finally:
-            Path(path).unlink(missing_ok=True)
+        # Selbst decodieren statt faster-whispers decode_audio: dessen PyAV-Aufruf passt nicht
+        # zu neueren PyAV-Versionen (``metadata_errors`` wurde entfernt).
+        samples, _rate = decode_audio(data, rate=WHISPER_RATE)
+        if not samples.size:
+            return ""
+        return self.transcribe(samples)
 
 
-def decode_audio(data: bytes) -> tuple[np.ndarray, int]:
-    """Decodiert MP3/WAV/… mit PyAV zu Mono-Float32."""
+def decode_audio(data: bytes, rate: int = 24_000) -> tuple[np.ndarray, int]:
+    """Decodiert MP3/WAV/WebM/… mit PyAV zu Mono-Float32 mit der gewünschten Abtastrate."""
     import av
 
-    with av.open(io.BytesIO(data)) as container:
+    with av.open(io.BytesIO(data), mode="r") as container:
+        if not container.streams.audio:
+            return np.zeros(0, dtype=np.float32), rate
         stream = container.streams.audio[0]
-        resampler = av.AudioResampler(format="flt", layout="mono", rate=24_000)
+        resampler = av.AudioResampler(format="flt", layout="mono", rate=rate)
         chunks = []
         for frame in container.decode(stream):
             for converted in resampler.resample(frame):
@@ -85,8 +89,8 @@ def decode_audio(data: bytes) -> tuple[np.ndarray, int]:
         for converted in resampler.resample(None):
             chunks.append(converted.to_ndarray().reshape(-1))
     if not chunks:
-        return np.zeros(0, dtype=np.float32), 24_000
-    return np.concatenate(chunks).astype(np.float32), 24_000
+        return np.zeros(0, dtype=np.float32), rate
+    return np.concatenate(chunks).astype(np.float32), rate
 
 
 class TextToSpeech:

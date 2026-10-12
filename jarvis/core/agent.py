@@ -16,6 +16,7 @@ import logging
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from jarvis.core.types import TaskKind
@@ -138,6 +139,10 @@ class Agent:
             parts.append("Verbundene Gmail-Konten: " + ", ".join(accounts))
         if with_tools:
             parts.append(TOOL_GUIDE)
+            parts.append(
+                f"Dein Arbeitsordner (dort darfst du frei Dateien anlegen): {self.app.workspace}\n"
+                f"Benutzerordner: {Path.home()}"
+            )
         if source == "voice":
             parts.append(VOICE_GUIDE)
         if extra:

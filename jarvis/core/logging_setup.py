@@ -13,7 +13,22 @@ from jarvis.core.config import LoggingConfig
 from jarvis.security.redaction import RedactingFormatter
 
 _FILE_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
-_NOISY_LOGGERS = ("httpx", "httpx2", "httpcore", "anthropic", "urllib3", "asyncio", "markdown_it")
+_NOISY_LOGGERS = (
+    "httpx",
+    "httpx2",
+    "httpcore",
+    "anthropic",
+    "urllib3",
+    "asyncio",
+    "markdown_it",
+    "primp",
+    "ddgs",
+    "google_genai",
+    "googleapiclient",
+    "websockets",
+    "multipart",
+    "faster_whisper",
+)
 
 _installed: list[logging.Handler] = []
 
