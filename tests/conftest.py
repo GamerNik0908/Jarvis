@@ -34,9 +34,13 @@ class FakeProvider(LLMProvider):
     name = "fake"
     default_api_key_name = None
 
-    def __init__(self, config: ProviderConfig, secrets: SecretStore) -> None:
-        super().__init__(config, secrets)
+    def __init__(
+        self, config: ProviderConfig, secrets: SecretStore, *, instance_name: str | None = None
+    ) -> None:
+        super().__init__(config, secrets, instance_name=instance_name)
         self.behaviours: dict[str, list[str] | Exception] = {}
+        #: Warteschlange fertiger Antworten pro Modell (z. B. mit Tool-Aufrufen); hat Vorrang.
+        self.scripted: dict[str, list[ChatResponse]] = {}
         self.fail_after: dict[str, Exception] = {}
         self.delays: dict[str, float] = {}
         self.served_model: dict[str, str] = {}
@@ -45,6 +49,13 @@ class FakeProvider(LLMProvider):
 
     async def stream(self, request: ChatRequest) -> AsyncGenerator[StreamChunk, None]:
         self.requests.append(request)
+        queue = self.scripted.get(request.model)
+        if queue:
+            scripted = queue.pop(0)
+            if scripted.text:
+                yield StreamChunk(text=scripted.text)
+            yield StreamChunk(response=scripted)
+            return
         behaviour = self.behaviours.get(request.model, ["Hallo", " Welt"])
         if isinstance(behaviour, Exception):
             raise behaviour
@@ -90,6 +101,8 @@ TEST_ROUTER = {
             "input_cost_per_mtok": 3.0,
             "output_cost_per_mtok": 15.0,
             "max_output_tokens": 800,
+            "supports_effort": True,
+            "supports_tools": True,
         },
         {
             "id": "fake-small",
@@ -97,8 +110,9 @@ TEST_ROUTER = {
             "quality": 5,
             "input_cost_per_mtok": 1.0,
             "output_cost_per_mtok": 5.0,
+            "supports_tools": True,
         },
-        {"id": "fake-free", "provider": "fake", "local": True},
+        {"id": "fake-free", "provider": "fake", "local": True, "trusted": True},
         {
             "id": "fake-pricey",
             "provider": "fake",
@@ -173,6 +187,8 @@ def config_file(tmp_path: Path) -> Path:
         {
             "paths": {"data_dir": str(tmp_path / "data")},
             "secrets": {"use_keyring": False},
+            "memory": {"embedder": "none"},
+            "budget": {"daily_limit_usd": 1.0, "monthly_limit_usd": 5.0},
             "router": TEST_ROUTER,
         }
     )

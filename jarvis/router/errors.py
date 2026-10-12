@@ -33,7 +33,22 @@ class ProviderAuthError(ProviderError):
 
 
 class ProviderUnavailableError(ProviderError):
-    """Vorübergehend nicht erreichbar: Rate-Limit, Überlastung, Netzwerk, Timeout."""
+    """Vorübergehend nicht erreichbar: Rate-Limit, Überlastung, Netzwerk, Timeout.
+
+    ``retry_after_s`` > 0 bedeutet: Modell für diese Zeit pausieren
+    (z. B. Free-Tier-Limit von Gemini oder Nutzungslimit des Claude-Abos).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        model: str | None = None,
+        retry_after_s: float = 0.0,
+    ) -> None:
+        super().__init__(message, provider=provider, model=model)
+        self.retry_after_s = retry_after_s
 
 
 class ModelNotFoundError(ProviderError):

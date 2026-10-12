@@ -1,197 +1,278 @@
-# JARVIS – persönlicher KI-Assistent für Windows 11
+# J.A.R.V.I.S. – dein persönlicher KI-Assistent für Windows 11
 
-JARVIS läuft lokal auf deinem PC, nutzt mehrere KI-Modelle (Cloud und lokal) und wird
-Phase für Phase zu einem Assistenten ausgebaut, der Aufgaben selbstständig erledigt,
-tagelang an Projekten arbeitet und sich kontrolliert selbst verbessert.
+JARVIS läuft dauerhaft auf deinem PC, versteht Sprache („Hey Jarvis“), zeigt dir alles in
+einem schönen Dashboard, erledigt Aufgaben selbstständig – und **programmiert sich auf
+Wunsch selbst weiter**: Du sagst „Ich hätte gerne eine Druckfunktion“, JARVIS baut sie mit
+Claude Code, testet sie, zeigt dir den Zwischenstand und übernimmt sie nach deiner
+Freigabe.
 
-**Aktueller Stand: Phase 1** – Text-Chat im Terminal mit KI-Router (Claude), Kosten- und
-Budgetkontrolle, Hardware-Erkennung und sicherem Umgang mit API-Keys.
-Architektur und Phasenplan: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+**Alles ist kostenlos.** Es gibt keine kostenpflichtigen API-Keys:
 
-## Was Phase 1 kann
+| Wofür | Womit | Kosten | Was du brauchst |
+|---|---|---|---|
+| Denken, Programmieren, Selbstverbesserung | **Claude** über *Claude Code* | 0 € extra – läuft über dein **Claude-Pro-Abo** | einmal im Browser anmelden |
+| schnelle Antworten, lange Texte | **Google Gemini** (kostenlose Stufe) | 0 € | kostenloser Key, 2 Minuten |
+| private Daten, offline | **lokale Modelle** über Ollama | 0 € | optional, 2–20 GB Platz |
+| Bilder erstellen | Pollinations | 0 € | nichts |
+| Bilder & Web suchen, Wetter | Openverse, DuckDuckGo, Open-Meteo | 0 € | nichts |
+| Gmail (mehrere Konten) & Kalender | Google-API | 0 € | einmalig ein Google-OAuth-Client, 10 Minuten |
+| Spracherkennung / Sprachausgabe | Whisper (lokal) / Edge-Stimmen | 0 € | nichts |
 
-- **Chat im Terminal** mit Streaming; Strg+C bricht nur die laufende Antwort ab.
-- **KI-Router**: wählt pro Aufgabenart (`chat`, `planning`, `code`, `review`, `simple`,
-  `summarize`) das passende Claude-Modell inkl. Denktiefe (`effort`) und weicht bei
-  Ausfällen automatisch auf das nächste Modell der Kette aus.
-- **Kostenkontrolle**: jeder Aufruf wird mit Tokens und Kosten in SQLite protokolliert;
-  harte Tages- und Monatslimits; Warnung ab 80 %.
-- **Hardware-Erkennung**: CPU, RAM, GPU, VRAM, freier Speicher – plus Empfehlung, welche
-  lokalen Modelle (Ollama, Phase 3) und welches Whisper-Modell (Phase 6) passen.
-- **Sicherheit**: Keys im Windows Credential Manager oder in `.env`, nie im Code;
-  automatische Schwärzung von Keys in allen Logs.
+Das globale Budget steht auf **0 $** – kostenpflichtige Modelle sind damit hart gesperrt.
 
-## Voraussetzungen
+---
 
-| | |
-|---|---|
-| Betriebssystem | Windows 11 (Windows 10 funktioniert ebenfalls) |
-| Python | **3.12 empfohlen** (3.11–3.13 werden unterstützt) |
-| Git | zum Klonen und ab Phase 8 für die Selbstverbesserung |
-| Anthropic API-Key | unter <https://console.anthropic.com> → *API Keys* |
-| optional | aktueller NVIDIA-Treiber (dann wird auch der freie VRAM erkannt) |
+## Was JARVIS kann
 
-## Installation (Windows 11, PowerShell)
+- **Dashboard** (öffnet sich automatisch, auch als eigenes Fenster): Begrüßung, Wetter,
+  PC-Auslastung, Termine, ungelesene Mails pro Gmail-Konto, Erinnerungen, Projekte,
+  Selbstverbesserungen, eigene Karten („Zeig mir dauerhaft den Bitcoin-Kurs“), Bildergalerie,
+  Chat, Protokoll, Modelle und Einstellungen.
+- **Sprache**: „Hey Jarvis“ (offline erkannt), Spracherkennung mit Whisper lokal auf dem PC,
+  Antworten per natürlicher Stimme. Im Dashboard zusätzlich ein Mikrofon-Knopf;
+  Push-to-Talk mit **Strg+Alt+Leertaste**.
+- **Bilder**: „Zeig mir ein Bild von einem Fuchs im Schnee“ – JARVIS erstellt eins oder
+  sucht passende Fotos im Internet und zeigt sie direkt im Chat und in der Galerie.
+- **Werkzeuge**: Websuche und Webseiten lesen, Dateien suchen/lesen/schreiben/verschieben,
+  Programme öffnen und schließen, PowerShell, Systemstatus, Wetter, Erinnerungen,
+  Gedächtnis („Merk dir, dass …“), Gmail lesen/suchen/Entwürfe/senden (mehrere Konten),
+  Kalender lesen/eintragen/löschen, Benachrichtigungen, Dashboard-Karten.
+- **KI-Router**: wählt pro Schritt das passende Modell (Qualität, Tempo, Limits) und weicht
+  automatisch aus, wenn eins ausfällt oder sein Kontingent aufgebraucht ist. Private Daten
+  (Mails, Kalender, Dateien) gehen nur an Claude (Abo) oder lokale Modelle – nie an die
+  kostenlose Gemini-Stufe.
+- **Projekte**: „Starte ein Projekt: Plane meinen Umzug nach Hamburg“ – JARVIS erstellt
+  einen Plan mit Meilensteinen, arbeitet im Hintergrund daran (auch über Tage, auch nach
+  einem Neustart weiter), prüft Ergebnisse mit einem zweiten Modell, fragt dich bei
+  Unklarheiten und macht inzwischen mit anderen Aufgaben weiter. Tagesbericht um 20 Uhr.
+- **Selbstverbesserung** mit Claude Code (siehe unten) – auf Zuruf oder durch einen
+  regelmäßigen Selbst-Check, der Verbesserungsvorschläge macht.
+- **Immer aktiv**: startet mit Windows, Tray-Icon neben der Uhr, globale Tastenkürzel,
+  startet sich nach Absturz oder Update selbst neu.
+
+---
+
+## Installation (einmalig, ca. 15 Minuten)
+
+> Du brauchst: Windows 11 (10 geht auch), Internet und dein Claude-Pro-Konto.
+
+**1. PowerShell öffnen** (Startmenü → „PowerShell“) und Python + Git installieren,
+falls noch nicht vorhanden:
 
 ```powershell
-# 1. Python und Git installieren (falls noch nicht vorhanden)
 winget install Python.Python.3.12
 winget install Git.Git
-# danach ein NEUES PowerShell-Fenster öffnen
-
-# 2. Projekt holen
-git clone https://github.com/GamerNik0908/Jarvis.git
-cd Jarvis
-git checkout claude/jarvis-ai-assistant-7vy3ok   # solange Phase 1 noch nicht in main ist
-
-# 3. Installieren (legt .venv an, installiert Pakete, zeigt deine Hardware)
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
-
-# 4. API-Key sicher im Windows Credential Manager speichern
-#    Einfügen mit Strg+V oder Rechtsklick – es wird nichts angezeigt, dann Enter.
-.\scripts\jarvis.cmd secrets set ANTHROPIC_API_KEY
-
-# 5. Prüfen – inkl. einer Mini-Testanfrage (kostet weniger als 0,1 Cent)
-.\scripts\jarvis.cmd check --live
-
-# 6. Chat starten
-.\scripts\jarvis.cmd
 ```
 
-> `-ExecutionPolicy Bypass` gilt nur für diesen einen Aufruf und ändert keine
-> Systemeinstellung.
+Danach das PowerShell-Fenster **schließen und ein neues öffnen**.
 
-<details>
-<summary>Manuelle Installation ohne Skript</summary>
+**2. JARVIS herunterladen und installieren:**
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip install --no-deps -e .
-.\.venv\Scripts\jarvis.exe check
+cd $HOME
+git clone https://github.com/GamerNik0908/Jarvis.git
+cd Jarvis
+git checkout claude/jarvis-ai-assistant-7vy3ok   # solange die Version noch nicht in main ist
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1
 ```
 
-Nach `.\.venv\Scripts\Activate.ps1` steht der Befehl `jarvis` direkt zur Verfügung.
-</details>
+Das Skript installiert alle Pakete, bietet **Claude Code** und (optional) **Ollama** per
+`winget` an, legt eine Verknüpfung **„JARVIS“** auf dem Desktop an und startet die geführte
+Einrichtung. Einfach den Fragen folgen – jeder Schritt kann mit Enter übersprungen und
+später im Dashboard unter **Einrichtung** nachgeholt werden.
 
-**Alternative zum Credential Manager:** `.env.example` nach `.env` kopieren und
-`ANTHROPIC_API_KEY=...` eintragen. Ein Wert in `.env` hat Vorrang vor dem Credential Manager.
+> `-ExecutionPolicy Bypass` gilt nur für diesen einen Aufruf und ändert nichts am System.
+
+**3. Fertig.** JARVIS startet, das Dashboard öffnet sich unter <http://127.0.0.1:8765>.
+Ab jetzt startet JARVIS automatisch bei jeder Windows-Anmeldung (falls du das bei der
+Einrichtung bestätigt hast; ändern mit `jarvis autostart on|off`).
+
+---
+
+## Was du holen musst – Checkliste
+
+### ✅ Claude (dein Pro-Abo) – Pflicht
+
+Dein Claude-Pro-Abo enthält **keinen API-Key** – den braucht JARVIS aber auch nicht. JARVIS
+nutzt stattdessen **Claude Code**, das offizielle Programm von Anthropic, das mit dem
+Pro-Abo ohne Zusatzkosten läuft. Einmalig anmelden:
+
+1. Neues PowerShell-Fenster öffnen, `claude` eintippen, Enter.
+2. Anmeldung mit deinem **Claude-Konto (Pro-Abo)** im Browser bestätigen.
+3. Claude mit `/exit` beenden. Fertig – JARVIS erkennt die Anmeldung automatisch.
+
+Hinweis: Claude Code und claude.ai teilen sich die Nutzungslimits des Pro-Abos (pro
+5-Stunden-Fenster und pro Woche). Ist das Limit erreicht, weicht JARVIS automatisch auf
+Gemini oder lokale Modelle aus und nimmt Claude danach wieder dazu.
+
+### ✅ Gemini-Key (kostenlos) – empfohlen
+
+1. <https://aistudio.google.com/apikey> öffnen, mit einem Google-Konto anmelden.
+2. **„API-Schlüssel erstellen“** klicken (keine Kreditkarte nötig).
+3. Den Schlüssel im Dashboard unter **Einrichtung → Gemini** einfügen und speichern.
+   Er landet verschlüsselt im Windows Credential Manager.
+
+Datenschutz: In der kostenlosen Stufe darf Google Eingaben zur Verbesserung seiner Dienste
+nutzen. JARVIS schickt deshalb **keine privaten Daten** (Mails, Kalender, Dateien) an Gemini.
+
+### ⭕ Gmail & Kalender – optional, ca. 10 Minuten
+
+Google verlangt dafür einen eigenen, kostenlosen „OAuth-Client“. Einmalig:
+
+1. <https://console.cloud.google.com/> öffnen → oben **Projekt auswählen → Neues Projekt**
+   → Name „JARVIS“ → Erstellen.
+2. **APIs & Dienste → Bibliothek**: „Gmail API“ suchen → **Aktivieren**. Ebenso
+   „Google Calendar API“ → **Aktivieren**.
+3. **APIs & Dienste → OAuth-Zustimmungsbildschirm** (bzw. „Google Auth Platform“):
+   App-Name „JARVIS“, deine E-Mail als Support- und Entwickleradresse, Nutzertyp
+   **Extern**. Unter **Zielgruppe / Testnutzer** alle Gmail-Adressen eintragen, die JARVIS
+   nutzen soll.
+4. **Wichtig:** Veröffentlichungsstatus auf **„In Produktion“** stellen (Button
+   „App veröffentlichen“). Im Status „Test“ laufen die Anmeldungen sonst nach 7 Tagen ab.
+   Eine Überprüfung durch Google ist für die private Nutzung nicht nötig.
+5. **Clients / Anmeldedaten → Client erstellen → Anwendungstyp „Desktop-App“** → Erstellen
+   → **JSON herunterladen**.
+6. Die Datei umbenennen in `credentials.json` und hierhin kopieren:
+   `%LOCALAPPDATA%\Jarvis\google\credentials.json`
+   (in die Adresszeile des Explorers eintippen; Ordner ggf. anlegen).
+7. Pro Gmail-Konto einmal ausführen: `.\scripts\jarvis.cmd google add`
+   Im Browser das Konto wählen. Erscheint „Google hat diese App nicht überprüft“:
+   **Erweitert → Weiter zu JARVIS** – es ist ja deine eigene App.
+
+Weitere Konten jederzeit mit `jarvis google add`, Übersicht mit `jarvis google list`,
+trennen mit `jarvis google remove <adresse>`. Der Kalender wird vom ersten Konto gelesen
+(anderes Konto: `google.calendar_account` in den Einstellungen).
+
+### ⭕ Ollama (lokale KI) – optional
+
+Für komplett private Antworten ohne Internet: `winget install Ollama.Ollama`. JARVIS erkennt
+deine Hardware und lädt passende Modelle im Dashboard unter **Einrichtung** per Knopfdruck.
+
+---
 
 ## Bedienung
 
-### Im Chat
-
-| Befehl | Wirkung |
+| Was | Wie |
 |---|---|
-| `/hilfe` | alle Befehle |
-| `/neu` | Gesprächsverlauf leeren |
-| `/modelle` | Modelle, Preise, Status und Routing |
-| `/nutze <id>` / `/nutze auto` | Modell fest wählen (ohne Fallback) / zurück zum Routing |
-| `/aufgabe <art>` | Aufgabenart setzen, z. B. `/aufgabe code` → stärkeres Modell, mehr Denktiefe |
-| `/kosten` | Kosten heute und diesen Monat, je Modell |
-| `/hw` | Hardware-Report und Modell-Empfehlung |
-| `/ende` | beenden (auch Strg+D) |
+| Dashboard öffnen | Desktop-Verknüpfung „JARVIS“, Tray-Icon oder **Strg+Alt+J** |
+| Sprechen | „**Hey Jarvis**, …“ oder **Strg+Alt+Leertaste** gedrückt halten bzw. Mikrofon-Knopf im Chat |
+| **Not-Aus** | **Strg+Alt+Umschalt+X**, roter Knopf im Dashboard oder Tray-Menü – stoppt sofort alle Aufgaben und Projekte |
+| Rückfragen | Riskante Aktionen erscheinen als Fenster im Dashboard (und per Sprache: „ja“/„nein“) |
+| Beenden | Tray-Menü → Beenden, oder `jarvis stop` |
 
-Nach jeder Antwort zeigt eine graue Zeile Modell, Tokens, Dauer, Kosten und Tagesbudget.
+Beispiele für Anfragen:
 
-### Kommandozeile
+- „Wie wird das Wetter morgen?“ · „Was steht diese Woche in meinem Kalender?“
+- „Habe ich wichtige ungelesene Mails?“ · „Schreib einen Entwurf an Max, dass ich später komme“
+- „Zeig mir ein Bild vom Mars“ · „Such mir Fotos vom Eiffelturm bei Nacht“
+- „Erinnere mich morgen um 9 an den Zahnarzt“ · „Merk dir, dass ich vegetarisch esse“
+- „Öffne Spotify“ · „Wie voll ist meine Festplatte?“
+- „Zeig mir dauerhaft eine Karte mit den Fußball-Ergebnissen auf der Übersicht“
+- „Starte ein Projekt: Recherchiere die besten E-Bikes unter 2000 €“
 
-`jarvis` steht nach `.\.venv\Scripts\Activate.ps1` zur Verfügung; ohne Aktivierung
-funktioniert `.\scripts\jarvis.cmd` mit denselben Argumenten.
+---
 
-```powershell
-jarvis                          # Chat (Standard)
-jarvis ask "Fasse mir die Idee von asyncio in 3 Sätzen zusammen"
-jarvis ask --task code "Schreib eine Python-Funktion, die Primzahlen prüft"
-jarvis hw [--json]              # Hardware + Empfehlung
-jarvis models                   # Modellkatalog und Routing
-jarvis cost                     # Kostenübersicht
-jarvis check [--live]           # Konfiguration, Keys, Budget prüfen
+## JARVIS bringt sich selbst Neues bei
+
+Sag einfach (im Chat, per Sprache oder unter **Selbstverbesserung**):
+
+> „Ich hätte gerne eine Druckoption für Chat-Antworten.“
+
+Dann passiert Folgendes – du siehst jeden Schritt live im Dashboard:
+
+1. JARVIS legt eine **Arbeitskopie** des eigenen Codes an (eigener Git-Branch – der
+   laufende JARVIS bleibt unberührt).
+2. **Claude Code** (über dein Pro-Abo) plant und programmiert die Änderung und schreibt
+   Tests dazu.
+3. Ein **Wächter** prüft, dass keine Sicherheits- oder Berechtigungsdateien angefasst
+   wurden – das darf JARVIS grundsätzlich nicht.
+4. Alle **automatischen Tests** laufen in der Arbeitskopie. Schlagen sie fehl, bessert
+   Claude nach (mehrere Runden).
+5. Du bekommst eine **Zusammenfassung mit allen Änderungen (Diff)** und klickst
+   **Übernehmen** oder **Verwerfen**. (Optional: kleine, getestete Plugin-Änderungen
+   automatisch übernehmen – Einstellungen → Selbstverbesserung.)
+6. Nach dem Übernehmen startet JARVIS neu. Startet die neue Version nicht sauber, wird sie
+   **automatisch zurückgerollt** und du bekommst eine Meldung. Jede Änderung steht im
+   [CHANGELOG](CHANGELOG.md).
+
+Zusätzlich prüft JARVIS **wöchentlich** (einstellbar: täglich/aus) selbst, was sich
+verbessern lässt – z. B. wiederkehrende Fehler aus dem Protokoll – und schlägt es dir
+auf der Übersicht vor. Umgesetzt wird nur, was du mit **Umsetzen** freigibst.
+
+> **„Sandbox“?** Damit ist nur gemeint: Neue Änderungen werden erst in einer getrennten
+> Kopie gebaut und getestet, bevor sie in den echten JARVIS kommen. Du musst dafür nichts
+> einrichten.
+
+---
+
+## Sicherheit
+
+- **Berechtigungsstufen**: Harmloses (Wetter, Suchen, Lesen) läuft automatisch.
+  Riskantes – Löschen (immer in den Papierkorb), Überschreiben, Mails senden,
+  Termine löschen, Programme beenden, PowerShell-Befehle mit Änderungen, Admin-Befehle –
+  braucht deine Bestätigung. Systemordner (`C:\Windows`, `C:\Program Files` …) und
+  Schlüsseldateien (`.env`, `*.pem`, Tokens) sind gesperrt. Pro Werkzeug einstellbar
+  (`security.tool_levels`).
+- **Not-Aus** per Tastenkürzel stoppt sofort alles, auch laufende Projekte und
+  Selbstverbesserungen.
+- **Keys** liegen im Windows Credential Manager (oder `.env`), nie im Code; in Logs werden
+  sie automatisch geschwärzt.
+- **Aktionsprotokoll**: Jede Aktion mit Zeit, Werkzeug, Entscheidung und Ergebnis
+  (Dashboard → Protokoll).
+- **Dashboard** nur auf `127.0.0.1` erreichbar, mit geheimem Zugriffsschlüssel.
+- **Geschützter Code**: Sicherheits-, Berechtigungs- und Updatecode
+  (`jarvis/security/`, Supervisor, Wächter) kann JARVIS selbst nicht ändern.
+
+---
+
+## Kommandozeile
+
+Ohne Aktivierung der virtuellen Umgebung: `.\scripts\jarvis.cmd <befehl>`.
+
+```text
+jarvis                     JARVIS starten (Hintergrund) und Dashboard öffnen
+jarvis stop | status       beenden / Status
+jarvis window              Chat-Fenster öffnen
+jarvis setup               geführte Einrichtung
+jarvis chat                Chat im Terminal
+jarvis ask "Frage"         eine Frage stellen
+jarvis improve "Wunsch"    Selbstverbesserung starten
+jarvis google add|list|remove
 jarvis secrets set|delete|status
+jarvis autostart on|off|status
+jarvis models | cost | hw | check
 ```
 
 ## Konfiguration
 
-Alle Einstellungen stehen kommentiert in [`config.yaml`](config.yaml). Eigene Werte
-gehören in eine **`config.local.yaml`** daneben – sie wird nicht committet und
-überschreibt nur, was du angibst (Listen werden dabei komplett ersetzt):
+Alle Einstellungen stehen kommentiert in [`config.yaml`](config.yaml). Das Dashboard
+(**Einstellungen**) schreibt deine Änderungen in eine `config.local.yaml` daneben – die
+überschreibt nur, was du änderst, und wird bei Updates nicht angefasst.
 
-```yaml
-# config.local.yaml
-assistant:
-  user_name: Nik
-budget:
-  daily_limit_usd: 1.00
-  monthly_limit_usd: 15.00
-router:
-  routes:
-    chat:            # günstiger chatten: Sonnet zuerst
-      - {model: claude-sonnet-5-5, effort: low}
-      - {model: claude-haiku-5-5, effort: low}
-```
-
-Tippfehler in Schlüsselnamen werden beim Start mit genauer Position gemeldet.
-
-### Wo liegen die Daten?
-
-Standardmäßig unter `%LOCALAPPDATA%\Jarvis` (bewusst getrennt vom Code):
-
-| Datei | Inhalt |
-|---|---|
-| `jarvis.db` | SQLite: Kosten- und Verbrauchsprotokoll (später Projekte, Aufgaben, Aktionen) |
-| `logs\jarvis-chat.log` | Log des Chats (rotierend, Keys geschwärzt) |
-| `hardware.json` | letzter Hardware-Report |
-| `chat_history.txt` | Eingabeverlauf für die Pfeiltasten (abschaltbar: `ui.save_input_history`) |
-
-Anderer Ort: `paths.data_dir` in der Konfiguration oder Umgebungsvariable `JARVIS_DATA_DIR`.
-
-### Kosten und Budget
-
-- Preise stehen pro Modell in `config.yaml` (USD pro 1 Mio. Tokens, Stand Oktober 2026).
-- Ist das Tages- oder Monatslimit erreicht, sperrt der Router alle kostenpflichtigen
-  Modelle – das gilt ab Phase 5 auch für Hintergrundprojekte.
-- Bricht man eine Antwort ab, berechnet der Anbieter trotzdem die bis dahin erzeugten
-  Tokens. JARVIS schätzt diese Kosten konservativ und rechnet sie dem Budget zu.
-- Wenn ein Sicherheitsfilter von Claude eine harmlose Anfrage fälschlich ablehnt, lässt
-  JARVIS sie serverseitig von einem passenden anderen Claude-Modell beantworten
-  (`refusal_fallback: true`). Die Kosten werden pro tatsächlich genutztem Modell berechnet.
-
-## Entwicklung und Tests
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Dev
-.\.venv\Scripts\python.exe -m pytest          # Tests (ohne Netzwerk, ohne API-Kosten)
-.\.venv\Scripts\python.exe -m ruff check .    # Linting
-.\.venv\Scripts\python.exe -m mypy            # Typprüfung (strict)
-```
+**Daten** liegen unter `%LOCALAPPDATA%\Jarvis` (getrennt vom Code): Datenbank
+(`jarvis.db`), Logs, Bilder, Google-Zugänge, Arbeitskopien der Selbstverbesserung.
 
 ## Fehlerbehebung
 
 | Problem | Lösung |
 |---|---|
-| „Ausführung von Skripts ist deaktiviert“ | Skript wie oben mit `powershell -ExecutionPolicy Bypass -File …` starten |
-| „Kein Python 3.11+ gefunden“ | `winget install Python.Python.3.12`, neues Terminal öffnen |
-| „kein API-Key (ANTHROPIC_API_KEY)“ | `jarvis secrets set ANTHROPIC_API_KEY` oder `.env` ausfüllen, JARVIS neu starten |
-| Neuer Key im Credential Manager wirkt nicht | Ein (alter) Eintrag in `.env` oder eine Umgebungsvariable hat Vorrang – entfernen |
-| „Zugriff verweigert – API-Key prüfen“ | Key in der Anthropic Console prüfen; JARVIS sperrt den Anbieter bis zum Neustart |
-| „Abrechnungsproblem (402)“ | Guthaben/Zahlungsdaten in der Anthropic Console prüfen |
-| GPU wird ohne „frei“-Wert angezeigt | normal ohne NVIDIA-Treiber/`nvidia-smi`; VRAM kommt dann aus der Registry |
-| Umlaute oder Symbole falsch dargestellt | Windows Terminal verwenden (Standard unter Windows 11) |
-| „Tagesbudget erreicht“ | Limit in `config.local.yaml` anpassen oder bis morgen warten |
+| „Ausführung von Skripts ist deaktiviert“ | wie oben mit `powershell -ExecutionPolicy Bypass -File …` starten |
+| „Claude Code ist nicht angemeldet“ | neues Terminal: `claude` → anmelden → `/exit`; dann Einrichtung → Neu prüfen |
+| „Claude-Abo-Limit erreicht“ | normal bei viel Nutzung; JARVIS nutzt bis zum Reset Gemini/lokale Modelle |
+| Gemini: „kein API-Key“ | Key unter Einrichtung einfügen (kostenlos, siehe oben) |
+| Gmail: „OAuth-Client fehlt“ | `credentials.json` wie oben beschrieben ablegen, dann `jarvis google add` |
+| Gmail-Anmeldung nach 7 Tagen weg | OAuth-App auf „In Produktion“ stellen (Schritt 4), Konto neu verbinden |
+| „Hey Jarvis“ reagiert nicht | Mikrofon in Windows-Einstellungen → Datenschutz freigeben; Empfindlichkeit in den Einstellungen senken |
+| Port 8765 belegt | läuft JARVIS schon? `jarvis status`; sonst `web.port` ändern |
+| Nach einem Update startet JARVIS nicht | passiert nicht dauerhaft: der Supervisor rollt fehlerhafte Updates automatisch zurück. Logs: `%LOCALAPPDATA%\Jarvis\logs` |
 
-## Roadmap
+## Entwicklung
 
-| Phase | Inhalt | Status |
-|---|---|---|
-| 1 | Projektstruktur, Konfiguration, Hardware-Erkennung, KI-Router (Claude), Terminal-Chat | ✅ |
-| 2 | Agent-Loop, Plugin-System mit Basis-Tools, Berechtigungssystem, Aktionsprotokoll, Not-Aus | geplant |
-| 3 | OpenAI, Gemini, Ollama; automatische Modellwahl; anbieterübergreifender Fallback | geplant |
-| 4 | Gedächtnis: Kurzzeit, Langzeit (ChromaDB), strukturierte Daten | geplant |
-| 5 | Langzeit-Projektmodus, Hintergrundbetrieb, Tagesberichte | geplant |
-| 6 | Sprachsteuerung: Wake-Word, Whisper, Sprachausgabe | geplant |
-| 7 | Tray-Icon, globaler Hotkey, Chat-Fenster, Web-Dashboard | geplant |
-| 8 | Selbstverbesserung mit Git, Sandbox, Tests und Freigabe | geplant |
-| 9 | Feinschliff, Autostart, Installer | geplant |
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install.ps1 -Dev
+.\.venv\Scripts\python.exe -m pytest        # Tests (ohne Netzwerk, ohne Kosten)
+.\.venv\Scripts\python.exe -m ruff check .
+.\.venv\Scripts\python.exe -m mypy          # strikte Typprüfung
+```
 
-Änderungen: [CHANGELOG.md](CHANGELOG.md)
+Architektur: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · Änderungen: [CHANGELOG.md](CHANGELOG.md)

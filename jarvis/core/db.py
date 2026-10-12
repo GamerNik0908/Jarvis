@@ -6,6 +6,7 @@ einfach weitere Einträge an :data:`MIGRATIONS` an – bestehende niemals änder
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 from collections.abc import Sequence
@@ -40,9 +41,191 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         CREATE INDEX idx_model_usage_project ON model_usage(project_id);
         """,
     ),
+    (
+        2,
+        """
+        CREATE TABLE audit_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          TEXT NOT NULL,
+            source      TEXT NOT NULL,
+            session_id  TEXT,
+            tool        TEXT NOT NULL,
+            arguments   TEXT,
+            level       TEXT NOT NULL,
+            decision    TEXT NOT NULL,
+            ok          INTEGER,
+            result      TEXT,
+            duration_ms INTEGER
+        );
+        CREATE INDEX idx_audit_ts ON audit_log(ts);
+
+        CREATE TABLE conversations (
+            id        TEXT PRIMARY KEY,
+            title     TEXT NOT NULL DEFAULT '',
+            channel   TEXT NOT NULL DEFAULT 'chat',
+            created   TEXT NOT NULL,
+            updated   TEXT NOT NULL,
+            sensitive INTEGER NOT NULL DEFAULT 0,
+            archived  INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE messages (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            role            TEXT NOT NULL,
+            content         TEXT NOT NULL,
+            created         TEXT NOT NULL,
+            meta            TEXT
+        );
+        CREATE INDEX idx_messages_conv ON messages(conversation_id, id);
+
+        CREATE TABLE memories (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            text            TEXT NOT NULL,
+            category        TEXT NOT NULL DEFAULT 'fakt',
+            source          TEXT,
+            created         TEXT NOT NULL,
+            embedding       BLOB,
+            embedding_model TEXT
+        );
+
+        CREATE TABLE reminders (
+            id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            text     TEXT NOT NULL,
+            due      TEXT NOT NULL,
+            repeat   TEXT,
+            created  TEXT NOT NULL,
+            done     INTEGER NOT NULL DEFAULT 0,
+            fired_at TEXT
+        );
+        CREATE INDEX idx_reminders_due ON reminders(done, due);
+
+        CREATE TABLE images (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            file        TEXT NOT NULL,
+            kind        TEXT NOT NULL,
+            prompt      TEXT,
+            source_url  TEXT,
+            attribution TEXT,
+            created     TEXT NOT NULL,
+            session_id  TEXT
+        );
+
+        CREATE TABLE cards (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            title   TEXT NOT NULL,
+            content TEXT NOT NULL,
+            image   TEXT,
+            created TEXT NOT NULL,
+            updated TEXT NOT NULL
+        );
+
+        CREATE TABLE projects (
+            id          TEXT PRIMARY KEY,
+            title       TEXT NOT NULL,
+            goal        TEXT NOT NULL,
+            status      TEXT NOT NULL,
+            priority    INTEGER NOT NULL DEFAULT 3,
+            budget_usd  REAL NOT NULL DEFAULT 0,
+            plan        TEXT,
+            summary     TEXT,
+            created     TEXT NOT NULL,
+            updated     TEXT NOT NULL,
+            last_report TEXT
+        );
+        CREATE TABLE project_tasks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            position    INTEGER NOT NULL,
+            milestone   TEXT,
+            title       TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            kind        TEXT NOT NULL DEFAULT 'chat',
+            status      TEXT NOT NULL DEFAULT 'pending',
+            depends_on  TEXT,
+            attempts    INTEGER NOT NULL DEFAULT 0,
+            result      TEXT,
+            feedback    TEXT,
+            created     TEXT NOT NULL,
+            updated     TEXT NOT NULL
+        );
+        CREATE INDEX idx_tasks_project ON project_tasks(project_id, position);
+        CREATE TABLE project_events (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            ts         TEXT NOT NULL,
+            kind       TEXT NOT NULL,
+            text       TEXT NOT NULL
+        );
+        CREATE TABLE project_questions (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            task_id    INTEGER,
+            question   TEXT NOT NULL,
+            answer     TEXT,
+            status     TEXT NOT NULL DEFAULT 'open',
+            created    TEXT NOT NULL,
+            answered   TEXT
+        );
+
+        CREATE TABLE improvements (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            request       TEXT NOT NULL,
+            source        TEXT NOT NULL DEFAULT 'user',
+            status        TEXT NOT NULL,
+            branch        TEXT,
+            worktree      TEXT,
+            base_commit   TEXT,
+            result_commit TEXT,
+            merge_commit  TEXT,
+            session_id    TEXT,
+            summary       TEXT,
+            changed_files TEXT,
+            diff_stat     TEXT,
+            test_output   TEXT,
+            error         TEXT,
+            created       TEXT NOT NULL,
+            updated       TEXT NOT NULL
+        );
+        CREATE TABLE improvement_suggestions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            title       TEXT NOT NULL,
+            description TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'open',
+            created     TEXT NOT NULL
+        );
+
+        CREATE TABLE state (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
+        """,
+    ),
+)
+
+#: Optionale Migrationen: schlagen sie fehl (z. B. SQLite ohne FTS5), läuft
+#: JARVIS mit einfacherer Suche weiter.
+OPTIONAL_MIGRATIONS: tuple[tuple[int, str], ...] = (
+    (
+        3,
+        """
+        CREATE VIRTUAL TABLE memories_fts USING fts5(text, content='memories', content_rowid='id');
+        CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+            INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text);
+        END;
+        CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, text) VALUES ('delete', old.id, old.text);
+        END;
+        CREATE TRIGGER memories_au AFTER UPDATE OF text ON memories BEGIN
+            INSERT INTO memories_fts(memories_fts, rowid, text) VALUES ('delete', old.id, old.text);
+            INSERT INTO memories_fts(rowid, text) VALUES (new.id, new.text);
+        END;
+        """,
+    ),
 )
 
 Params = Sequence[Any] | dict[str, Any]
+
+log = logging.getLogger(__name__)
 
 
 class Database:
@@ -67,7 +250,9 @@ class Database:
             )
             row = self._conn.execute("SELECT MAX(version) FROM schema_version").fetchone()
             current = int(row[0] or 0)
-            for version, sql in MIGRATIONS:
+            steps = [(v, sql, False) for v, sql in MIGRATIONS]
+            steps += [(v, sql, True) for v, sql in OPTIONAL_MIGRATIONS]
+            for version, sql, optional in sorted(steps):
                 if version <= current:
                     continue
                 script = (
@@ -79,9 +264,29 @@ class Database:
                 except sqlite3.Error:
                     if self._conn.in_transaction:
                         self._conn.execute("ROLLBACK")
-                    raise
+                    if not optional:
+                        raise
+                    log.warning("Optionale Migration %s übersprungen", version, exc_info=True)
+                    self._conn.execute("INSERT INTO schema_version(version) VALUES (?)", (version,))
                 current = version
             return current
+
+    def has_table(self, name: str) -> bool:
+        row = self.query_one(
+            "SELECT 1 FROM sqlite_master WHERE type IN ('table', 'view') AND name = ?", (name,)
+        )
+        return row is not None
+
+    def get_state(self, key: str, default: str | None = None) -> str | None:
+        row = self.query_one("SELECT value FROM state WHERE key = ?", (key,))
+        return str(row[0]) if row else default
+
+    def set_state(self, key: str, value: str) -> None:
+        self.execute(
+            "INSERT INTO state(key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
 
     def execute(self, sql: str, params: Params = ()) -> int:
         """Führt eine schreibende Anweisung aus und liefert die ``lastrowid``."""

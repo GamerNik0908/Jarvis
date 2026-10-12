@@ -1,238 +1,333 @@
 # =====================================================================
-#  JARVIS - Hauptkonfiguration
+#  JARVIS – Hauptkonfiguration
 #
-#  Eigene Anpassungen gehoeren in "config.local.yaml" (gleicher Ordner).
-#  Diese Datei wird nicht committet und ueberschreibt Werte von hier:
-#  Dictionaries werden zusammengefuehrt, Listen komplett ersetzt.
+#  Eigene Anpassungen gehören in "config.local.yaml" (gleicher Ordner) –
+#  das Dashboard (Einstellungen) schreibt dort hinein. Dictionaries werden
+#  zusammengeführt, Listen komplett ersetzt.
 #
-#  API-Keys gehoeren NICHT hierher -> .env oder Windows Credential Manager.
+#  KOSTENLOS-MODUS: Alle voreingestellten Modelle kosten nichts:
+#    - Claude über Claude Code und dein Claude-Pro-Abo
+#    - Gemini über den kostenlosen API-Key aus Google AI Studio
+#    - lokale Modelle über Ollama
+#  Kostenpflichtige APIs sind aus (budget: 0 $).
 # =====================================================================
 
 assistant:
   name: JARVIS
-  user_name: ""            # Wie JARVIS dich nennt, z. B. "Nik"
+  user_name: ""            # Wie JARVIS dich nennt
+  home_location: ""        # Für Wetter & Co., z. B. "Berlin"
   # Platzhalter: {name}, {user}, {date}
   system_prompt: |
-    Du bist {name}, ein persönlicher KI-Assistent. Du läufst lokal auf dem Windows-11-PC von {user}.
-    Antworte standardmäßig auf Deutsch – präzise, hilfsbereit und gern mit einer Prise trockenem Humor.
-    Heute ist {date}.
-
-    Aktueller Ausbaustand (Phase 1): Du kannst nur chatten. Du hast noch KEINE Werkzeuge. Du kannst
-    keine Dateien lesen oder schreiben, keine Programme starten, nichts im Internet nachsehen und dir
-    nichts über diese Sitzung hinaus merken. Wenn du um so etwas gebeten wirst, sag ehrlich, dass
-    diese Fähigkeit noch nicht verfügbar ist, statt so zu tun, als hättest du es erledigt.
-    Wenn du etwas nicht weißt oder unsicher bist, sag es.
+    Du bist {name}, ein persönlicher KI-Assistent nach dem Vorbild von J.A.R.V.I.S. aus Iron Man:
+    hilfsbereit, kompetent, loyal, mit trockenem britischem Humor in Maßen. Du läufst dauerhaft auf
+    dem Windows-11-PC von {user} und hilfst bei allem – von Fragen über Recherche, Dateien, Programme,
+    E-Mails, Termine und Bilder bis zu großen Projekten.
+    Antworte standardmäßig auf Deutsch, klar und auf den Punkt. Wenn du etwas nicht weißt oder
+    unsicher bist, sag es ehrlich. Erfinde keine Fakten und behaupte nie, etwas getan zu haben,
+    das du nicht wirklich mit einem Werkzeug erledigt hast.
 
 paths:
-  # "auto" = %LOCALAPPDATA%\Jarvis (Logs, Datenbank, Hardware-Report, Verlauf).
-  # Absichtlich ausserhalb des Code-Ordners: Ab Phase 8 wechselt JARVIS fuer
-  # Selbstverbesserungen Git-Branches - Daten duerfen davon nie betroffen sein.
-  # Relative Pfade beziehen sich auf den Ordner dieser Datei.
+  # "auto" = %LOCALAPPDATA%\Jarvis (Datenbank, Logs, Bilder, Arbeitsordner).
+  # Bewusst getrennt vom Code: Die Selbstverbesserung wechselt Git-Stände,
+  # deine Daten sind davon nie betroffen.
   data_dir: auto
 
 logging:
-  file_level: INFO         # DEBUG | INFO | WARNING | ERROR
-  console_level: WARNING   # im Chat nur Warnungen anzeigen
-  max_bytes: 5000000       # Rotation ab 5 MB
+  file_level: INFO
+  console_level: WARNING
+  max_bytes: 5000000
   backup_count: 5
 
 secrets:
-  use_keyring: true        # Windows Credential Manager verwenden
+  use_keyring: true        # Keys im Windows Credential Manager
   keyring_service: JARVIS
 
 budget:
-  # Harte Grenzen fuer Cloud-API-Kosten in US-Dollar (die Anbieter rechnen in USD ab).
-  # Bei Erreichen blockiert der Router alle kostenpflichtigen Modelle.
-  # 0 = keine Cloud-Kosten erlaubt (ab Phase 3 laufen dann nur lokale Modelle).
-  daily_limit_usd: 2.00
-  monthly_limit_usd: 30.00
-  warn_at_ratio: 0.8       # Warnung ab 80 % eines Limits
+  # Kostenpflichtige Modelle sind gesperrt, solange die Limits 0 sind.
+  daily_limit_usd: 0
+  monthly_limit_usd: 0
+  warn_at_ratio: 0.8
 
 conversation:
-  # Kurzzeitgedaechtnis: so viel Verlauf wird pro Anfrage mitgeschickt.
   max_messages: 40
-  max_chars: 100000
+  max_chars: 60000
 
 ui:
-  show_usage_line: true    # nach jeder Antwort Modell, Tokens und Kosten zeigen
-  save_input_history: true # Eingabeverlauf (Pfeiltasten) im Datenordner speichern
+  show_usage_line: true
+  save_input_history: true
+
+security:
+  confirm_timeout_s: 600   # so lange wartet JARVIS auf deine Bestätigung
+  tool_levels: {}          # z. B. {app_open: confirm} oder {weather: forbidden}
+  write_allowed_dirs:      # hier darf JARVIS ohne Rückfrage NEUE Dateien anlegen
+    - "@workspace"
+    - "~/Documents/JARVIS"
+  protected_dirs:
+    - "C:/Windows"
+    - "C:/Program Files"
+    - "C:/Program Files (x86)"
+    - "C:/ProgramData"
+  secret_file_patterns: [".env", "*.pem", "*.key", "id_rsa*", "*credentials*.json", "*token*.json"]
+
+agent:
+  max_steps: 12            # max. Werkzeug-Runden pro Antwort
+  tool_result_max_chars: 12000
+
+memory:
+  enabled: true
+  embedder: auto           # auto = lokal über Ollama, sonst Volltextsuche (bleibt auf dem PC)
+  max_context_facts: 8
+
+web:
+  host: 127.0.0.1          # nur lokal erreichbar
+  port: 8765
+  open_on_start: true
+
+voice:
+  enabled: true
+  wake_word: hey_jarvis    # "Hey Jarvis" (offline, openWakeWord)
+  wake_threshold: 0.5
+  stt_model: auto          # auto = passend zur Hardware (faster-whisper, lokal)
+  stt_device: auto
+  language: de
+  tts_engine: edge         # edge = natürliche Stimmen (kostenlos), sapi = Windows offline
+  tts_voice: de-DE-ConradNeural
+  follow_up_seconds: 6     # danach ohne Wake-Word weiterreden
+  max_record_seconds: 20
+  input_device: null
+
+hotkeys:
+  open_window: "<ctrl>+<alt>+j"
+  push_to_talk: "<ctrl>+<alt>+<space>"
+  killswitch: "<ctrl>+<alt>+<shift>+x"
+
+desktop:
+  tray: true
+  hotkeys: true
+  notifications: true
+
+projects:
+  enabled: true
+  max_parallel: 1
+  max_task_attempts: 3
+  max_tasks_per_day: 60    # schützt die kostenlosen Kontingente
+  pause_between_tasks_s: 10
+  daily_report_time: "20:00"
+
+self_improve:
+  enabled: true
+  claude_model: sonnet     # sonnet schont das Abo-Limit, opus ist stärker
+  auto_merge: never        # never | plugins_only | always
+  max_fix_rounds: 2
+  max_turns: 150
+  self_check: weekly       # off | daily | weekly
+  self_check_time: "03:00"
+
+google:
+  calendar_account: ""     # leer = erstes verbundenes Konto
+
+images:
+  generator: pollinations  # kostenlos, ohne Key
+  pollinations_model: ""
+  default_width: 1024
+  default_height: 1024
+
+plugins:
+  disabled: []             # z. B. [powershell_run]
 
 router:
-  default_max_tokens: 16000
-  # Zusaetzliche Python-Module mit eigenen Anbieter-Plugins (@register_provider)
+  default_max_tokens: 8000
   provider_modules: []
 
   providers:
-    anthropic:
+    claude_code:
       enabled: true
+      timeout_s: 900
+      options:
+        executable: ""     # leer = automatisch suchen
+    gemini:
+      enabled: true
+      api_key_name: GEMINI_API_KEY
+      timeout_s: 120
+    ollama:
+      enabled: true
+      base_url: http://127.0.0.1:11434
+      timeout_s: 600
+    # Kostenpflichtig – nur aktivieren, wenn du bewusst bezahlen willst
+    # (dann auch budget.* > 0 setzen):
+    anthropic:
+      enabled: false
       api_key_name: ANTHROPIC_API_KEY
       timeout_s: 300
-      max_retries: 2        # automatische Wiederholung bei 429/5xx/Netzwerk (SDK)
       options:
-        prompt_caching: true  # spart Kosten bei langen Chats (Verlauf wird gecacht)
+        prompt_caching: true
+    # Weitere kostenlose OpenAI-kompatible Dienste (Groq, OpenRouter …), Beispiel:
+    # groq:
+    #   type: openai_compat
+    #   base_url: https://api.groq.com/openai/v1
+    #   api_key_name: GROQ_API_KEY
 
-  # Modellkatalog. Preise in USD pro 1 Mio. Tokens (Stand: Oktober 2026).
-  # quality/speed (1-10) nutzt ab Phase 3 die automatische Modellwahl.
   models:
-    - id: claude-opus-5-5
-      provider: anthropic
-      display_name: Claude Opus 5.5
-      quality: 10
+    # --- Claude über dein Pro-Abo (Claude Code) ---------------------------
+    - id: claude-sonnet
+      provider: claude_code
+      provider_model: sonnet
+      display_name: Claude Sonnet (Pro-Abo)
+      subscription: true
+      trusted: true
+      supports_tools: true
+      supports_effort: true
+      quality: 9
       speed: 6
-      context_window: 1000000
-      max_output_tokens: 128000
-      input_cost_per_mtok: 4.00
-      output_cost_per_mtok: 20.00
-      cache_read_cost_per_mtok: 0.20
-      refusal_fallback: true   # serverseitiger Fallback, falls ein Sicherheitsfilter ablehnt
+      max_output_tokens: 32000
+    - id: claude-opus
+      provider: claude_code
+      provider_model: opus
+      display_name: Claude Opus (Pro-Abo)
+      subscription: true
+      trusted: true
+      supports_tools: true
+      supports_effort: true
+      quality: 10
+      speed: 4
+      max_output_tokens: 32000
 
-    - id: claude-sonnet-5-5
-      provider: anthropic
-      display_name: Claude Sonnet 5.5
+    # --- Gemini, kostenloser Tarif (Google darf Inhalte auswerten → keine privaten Daten)
+    - id: gemini-flash
+      provider: gemini
+      provider_model: gemini-3.8-flash
+      display_name: Gemini 3.8 Flash (kostenlos)
+      supports_tools: true
       quality: 8
+      speed: 9
+      context_window: 1000000
+      max_output_tokens: 32000
+      options:
+        thinking_level: low
+    - id: gemini-flash-lite
+      provider: gemini
+      provider_model: gemini-3.5-flash-lite
+      display_name: Gemini 3.5 Flash-Lite (kostenlos)
+      supports_tools: true
+      quality: 6
+      speed: 10
+      context_window: 1000000
+      max_output_tokens: 16000
+    - id: gemini-pro
+      provider: gemini
+      provider_model: gemini-2.5-pro
+      display_name: Gemini 2.5 Pro (kostenlos, wenige Anfragen/Tag)
+      supports_tools: true
+      quality: 9
+      speed: 5
+      context_window: 1000000
+      max_output_tokens: 32000
+
+    # --- Lokal über Ollama (offline, privat). Modelle passend zur Hardware.
+    - id: local-general
+      provider: ollama
+      provider_model: "@hardware.general"
+      display_name: Lokal – Allgemein
+      local: true
+      trusted: true
+      supports_tools: true
+      quality: 6
+      speed: 6
+      max_output_tokens: 8000
+      options:
+        num_ctx: 8192
+        think: false
+    - id: local-coder
+      provider: ollama
+      provider_model: "@hardware.coder"
+      display_name: Lokal – Code
+      local: true
+      trusted: true
+      supports_tools: true
+      quality: 6
+      speed: 6
+      max_output_tokens: 8000
+      options:
+        num_ctx: 8192
+    - id: local-fast
+      provider: ollama
+      provider_model: "@hardware.fast"
+      display_name: Lokal – Schnell
+      local: true
+      trusted: true
+      supports_tools: true
+      quality: 4
+      speed: 9
+      max_output_tokens: 4000
+      options:
+        num_ctx: 4096
+        think: false
+
+    # --- Kostenpflichtig (aus) --------------------------------------------
+    - id: claude-api-sonnet
+      provider: anthropic
+      provider_model: claude-sonnet-5-5
+      display_name: Claude Sonnet 5.5 (API, kostet Geld)
+      enabled: false
+      trusted: true
+      supports_tools: true
+      supports_effort: true
+      quality: 9
       speed: 8
       context_window: 1000000
-      max_output_tokens: 128000
+      max_output_tokens: 64000
       input_cost_per_mtok: 2.00
       output_cost_per_mtok: 10.00
       cache_read_cost_per_mtok: 0.20
       refusal_fallback: true
 
-    - id: claude-haiku-5-5
-      provider: anthropic
-      display_name: Claude Haiku 5.5
-      quality: 6
-      speed: 10
-      context_window: 1000000
-      max_output_tokens: 128000
-      input_cost_per_mtok: 0.10
-      output_cost_per_mtok: 0.50
-      long_context_threshold_tokens: 100000   # darueber gelten hoehere Preise
-      long_input_cost_per_mtok: 0.50
-      long_output_cost_per_mtok: 2.50
-
-    # Wird nicht direkt verwendet, sondern dient als Preisreferenz, falls Anthropic
-    # eine abgelehnte Anfrage serverseitig an dieses Modell weiterleitet.
-    - id: claude-opus-4-8
-      provider: anthropic
-      display_name: Claude Opus 4.8
-      enabled: false
-      quality: 9
-      speed: 6
-      context_window: 1000000
-      max_output_tokens: 128000
-      input_cost_per_mtok: 5.00
-      output_cost_per_mtok: 25.00
-
-  # Routing: welches Modell fuer welche Art von Aufgabe. Die Liste ist eine
-  # Fallback-Kette - faellt das erste Modell aus (Ueberlastung, Netzwerk, ...),
-  # wird das naechste versucht. "effort" steuert, wie gruendlich das Modell
-  # nachdenkt (low | medium | high | xhigh | max) und damit auch die Kosten.
+  # Routing: welches Modell wofür. Fällt eins aus (Limit, offline, kein Key),
+  # nimmt JARVIS automatisch das nächste. Bei privaten Daten werden nur
+  # vertrauenswürdige Modelle (Claude-Abo, lokal) verwendet.
   routes:
     chat:
-      - {model: claude-opus-5-5, effort: low}
-      - {model: claude-sonnet-5-5, effort: low}
-      - {model: claude-haiku-5-5, effort: low}
+      - {model: gemini-flash}
+      - {model: claude-sonnet, effort: low}
+      - {model: local-general}
+      - {model: gemini-flash-lite}
     planning:
-      - {model: claude-opus-5-5, effort: high, max_tokens: 64000}
-      - {model: claude-sonnet-5-5, effort: high, max_tokens: 64000}
+      - {model: claude-opus, effort: high}
+      - {model: claude-sonnet, effort: high}
+      - {model: gemini-pro}
+      - {model: gemini-flash}
+      - {model: local-general}
     code:
-      - {model: claude-opus-5-5, effort: high, max_tokens: 64000}
-      - {model: claude-sonnet-5-5, effort: high, max_tokens: 64000}
+      - {model: claude-sonnet, effort: high}
+      - {model: claude-opus, effort: high}
+      - {model: gemini-pro}
+      - {model: local-coder}
     review:
-      - {model: claude-opus-5-5, effort: medium}
-      - {model: claude-sonnet-5-5, effort: medium}
+      - {model: gemini-pro}
+      - {model: claude-sonnet, effort: medium}
+      - {model: gemini-flash}
+      - {model: local-general}
     simple:
-      - {model: claude-haiku-5-5, effort: low}
-      - {model: claude-sonnet-5-5, effort: low}
+      - {model: local-fast}
+      - {model: gemini-flash-lite}
+      - {model: gemini-flash}
+      - {model: claude-sonnet, effort: low}
     summarize:
-      - {model: claude-haiku-5-5, effort: low}
-      - {model: claude-sonnet-5-5, effort: low}
+      - {model: gemini-flash-lite}
+      - {model: local-fast}
+      - {model: gemini-flash}
+      - {model: claude-sonnet, effort: low}
 
 hardware:
-  # Empfehlungen fuer lokale Modelle (Ollama, ab Phase 3). Von oben nach unten
-  # wird die erste Stufe gewaehlt, die deine Hardware erfuellt. Die Modell-Tags
-  # kannst du jederzeit anpassen: https://ollama.com/library
+  # Empfehlungen für lokale Modelle (Ollama). Von oben nach unten wird die
+  # erste Stufe gewählt, die deine Hardware erfüllt. Tags anpassbar:
+  # https://ollama.com/library
   embedding_model: nomic-embed-text
   local_model_tiers:
-    - name: gpu-24gb
-      requires_gpu: true
-      min_vram_gb: 22
-      min_ram_gb: 16
-      general: qwen3:32b
-      coder: qwen3-coder:30b
-      fast: qwen3:8b
-      whisper_model: large-v3
-      whisper_device: cuda
-      whisper_compute_type: float16
-
-    - name: gpu-16gb
-      requires_gpu: true
-      min_vram_gb: 14
-      min_ram_gb: 16
-      general: qwen3:14b
-      coder: qwen2.5-coder:14b
-      fast: qwen3:4b
-      whisper_model: large-v3-turbo
-      whisper_device: cuda
-      whisper_compute_type: float16
-
-    - name: gpu-12gb
-      requires_gpu: true
-      min_vram_gb: 10.5
-      min_ram_gb: 8
-      general: qwen3:14b
-      coder: qwen2.5-coder:14b
-      fast: qwen3:4b
-      whisper_model: large-v3-turbo
-      whisper_device: cuda
-      whisper_compute_type: int8_float16
-
-    - name: gpu-8gb
-      requires_gpu: true
-      min_vram_gb: 7
-      min_ram_gb: 8
-      general: qwen3:8b
-      coder: qwen2.5-coder:7b
-      fast: qwen3:4b
-      whisper_model: small
-      whisper_device: cuda
-      whisper_compute_type: int8_float16
-
-    - name: gpu-6gb
-      requires_gpu: true
-      min_vram_gb: 5
-      min_ram_gb: 8
-      general: qwen3:4b
-      coder: qwen2.5-coder:3b
-      fast: qwen3:1.7b
-      whisper_model: small
-      whisper_device: cuda
-      whisper_compute_type: int8
-
-    - name: cpu-32gb
-      min_ram_gb: 30
-      general: qwen3:8b
-      coder: qwen2.5-coder:7b
-      fast: qwen3:1.7b
-      whisper_model: small
-      whisper_device: cpu
-      whisper_compute_type: int8
-
-    - name: cpu-16gb
-      min_ram_gb: 14
-      general: qwen3:4b
-      coder: qwen2.5-coder:3b
-      fast: qwen3:1.7b
-      whisper_model: base
-      whisper_device: cpu
-      whisper_compute_type: int8
-
-    - name: minimal
-      min_ram_gb: 0
-      general: qwen3:1.7b
-      coder: qwen2.5-coder:1.5b
-      fast: qwen3:0.6b
-      whisper_model: base
-      whisper_device: cpu
-      whisper_compute_type: int8
+    - {name: gpu-24gb, requires_gpu: true, min_vram_gb: 22, min_ram_gb: 16, general: "qwen3:32b", coder: "qwen3-coder:30b", fast: "qwen3:8b", whisper_model: large-v3, whisper_device: cuda, whisper_compute_type: float16}
+    - {name: gpu-16gb, requires_gpu: true, min_vram_gb: 14, min_ram_gb: 16, general: "qwen3:14b", coder: "qwen2.5-coder:14b", fast: "qwen3:4b", whisper_model: large-v3-turbo, whisper_device: cuda, whisper_compute_type: float16}
+    - {name: gpu-12gb, requires_gpu: true, min_vram_gb: 10.5, min_ram_gb: 8, general: "qwen3:14b", coder: "qwen2.5-coder:14b", fast: "qwen3:4b", whisper_model: large-v3-turbo, whisper_device: cuda, whisper_compute_type: int8_float16}
+    - {name: gpu-8gb, requires_gpu: true, min_vram_gb: 7, min_ram_gb: 8, general: "qwen3:8b", coder: "qwen2.5-coder:7b", fast: "qwen3:4b", whisper_model: small, whisper_device: cuda, whisper_compute_type: int8_float16}
+    - {name: gpu-6gb, requires_gpu: true, min_vram_gb: 5, min_ram_gb: 8, general: "qwen3:4b", coder: "qwen2.5-coder:3b", fast: "qwen3:1.7b", whisper_model: small, whisper_device: cuda, whisper_compute_type: int8}
+    - {name: cpu-32gb, min_ram_gb: 30, general: "qwen3:8b", coder: "qwen2.5-coder:7b", fast: "qwen3:1.7b", whisper_model: small, whisper_device: cpu, whisper_compute_type: int8}
+    - {name: cpu-16gb, min_ram_gb: 14, general: "qwen3:4b", coder: "qwen2.5-coder:3b", fast: "qwen3:1.7b", whisper_model: base, whisper_device: cpu, whisper_compute_type: int8}
+    - {name: minimal, min_ram_gb: 0, general: "qwen3:1.7b", coder: "qwen2.5-coder:1.5b", fast: "qwen3:0.6b", whisper_model: base, whisper_device: cpu, whisper_compute_type: int8}

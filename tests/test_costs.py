@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 
 from jarvis.core.config import BudgetConfig, ModelConfig
-from jarvis.core.db import MIGRATIONS, Database
+from jarvis.core.db import MIGRATIONS, OPTIONAL_MIGRATIONS, Database
 from jarvis.router.costs import CostTracker, UsageRecord, calculate_cost
 from jarvis.router.errors import BudgetExceededError
 
@@ -91,8 +91,10 @@ def test_project_spending(costs: CostTracker) -> None:
 
 
 def test_migrations_are_idempotent(db: Database) -> None:
-    latest = MIGRATIONS[-1][0]
+    steps = [*MIGRATIONS, *OPTIONAL_MIGRATIONS]
+    latest = max(version for version, _ in steps)
     assert db.migrate() == latest
     assert db.migrate() == latest
     row = db.query_one("SELECT COUNT(*) FROM schema_version")
-    assert row is not None and row[0] == len(MIGRATIONS)
+    assert row is not None and row[0] == len(steps)
+    assert db.has_table("memories_fts")

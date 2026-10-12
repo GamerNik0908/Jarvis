@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JARVIS</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css?v=__JARVIS_VERSION__">
+  <script>
+    window.JARVIS = { token: "__JARVIS_TOKEN__", version: "__JARVIS_VERSION__" };
+    try { document.documentElement.dataset.theme = localStorage.getItem("jarvis-theme") || "dark"; } catch (e) {}
+  </script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="reactor" aria-hidden="true"><span></span></div>
+        <div>
+          <div class="brand-name">J.A.R.V.I.S.</div>
+          <div class="brand-sub">v__JARVIS_VERSION__</div>
+        </div>
+      </div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot" id="sidebar-foot"></div>
+    </aside>
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="menu-btn" aria-label="Menü">☰</button>
+        <h1 id="page-title">Übersicht</h1>
+        <div class="topbar-right">
+          <button class="pill" id="voice-pill" title="Sprachsteuerung an/aus">
+            <span class="dot"></span><span id="voice-label">Sprache</span>
+          </button>
+          <button class="pill" id="models-pill" title="Bereite KI-Modelle"><span class="dot ok"></span><span id="models-label">Modelle</span></button>
+          <button class="kill" id="kill-btn" title="Not-Aus: stoppt sofort alles (Strg+Alt+Umschalt+X)">NOT-AUS</button>
+        </div>
+      </header>
+      <div class="kill-banner hidden" id="kill-banner">
+        <span>⛔ Not-Aus ist aktiv – JARVIS führt keine Aktionen aus.</span>
+        <button class="btn small" id="kill-release">Freigeben</button>
+      </div>
+      <section id="view" class="view"></section>
+    </main>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <script src="/static/app.js?v=__JARVIS_VERSION__"></script>
+</body>
+</html>

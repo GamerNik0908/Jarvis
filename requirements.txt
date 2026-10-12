@@ -1,13 +1,43 @@
-# JARVIS - Laufzeitabhaengigkeiten (Phase 1)
-# Installation:  pip install -r requirements.txt
-# Spaetere Phasen ergaenzen hier weitere Pakete (Ollama-Client, ChromaDB, Whisper, ...).
+# JARVIS – Laufzeitabhaengigkeiten
+# Installation: pip install -r requirements.txt  (das Installationsskript erledigt das)
 
-anthropic>=1.13,<2        # Claude (Anthropic API)
-pydantic>=2.7,<3          # Validierung von config.yaml
-PyYAML>=6.0               # YAML-Parser
-python-dotenv>=1.0        # .env-Datei laden
-keyring>=25.0             # Windows Credential Manager fuer API-Keys
-psutil>=6.0               # CPU/RAM/Datentraeger
-rich>=13.7                # Terminal-Ausgabe
-prompt_toolkit>=3.0.43    # Eingabezeile mit Verlauf
-platformdirs>=4.2         # %LOCALAPPDATA%\Jarvis als Datenordner
+# Kern
+pydantic>=2.7,<3
+PyYAML>=6.0
+python-dotenv>=1.0
+keyring>=25.0
+psutil>=6.0
+platformdirs>=4.2
+httpx>=0.27
+numpy>=1.26
+pillow>=10.0
+rich>=13.7
+prompt_toolkit>=3.0.43
+
+# KI-Anbieter (alle kostenlos nutzbar; Anthropic-API nur optional/kostenpflichtig)
+google-genai>=2.20
+anthropic>=1.13,<2
+
+# Dashboard / Dienst
+fastapi>=0.115
+uvicorn>=0.30
+websockets>=13
+python-multipart>=0.0.9
+
+# Werkzeuge
+ddgs>=9.0                  # Websuche (DuckDuckGo)
+send2trash>=1.8            # Loeschen in den Papierkorb
+google-api-python-client>=2.150
+google-auth-oauthlib>=1.2
+
+# Sprache
+faster-whisper>=1.1        # Spracherkennung (lokal)
+edge-tts>=7.0              # Sprachausgabe (kostenlos)
+sounddevice>=0.5           # Mikrofon / Lautsprecher
+openwakeword>=0.6; sys_platform == "win32"     # "Hey Jarvis"
+pyttsx3>=2.98; sys_platform == "win32"         # Windows-Stimme (offline)
+
+# Desktop
+pystray>=0.19; sys_platform == "win32"         # Tray-Icon
+pynput>=1.7; sys_platform == "win32"           # globale Tastenkuerzel
+pywebview>=5.0; sys_platform == "win32"        # Chat-Fenster

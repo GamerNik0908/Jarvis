@@ -102,13 +102,23 @@ class BudgetStatus:
         return self.spent_month / self.monthly_limit if self.monthly_limit > 0 else 1.0
 
     @property
+    def paid_disabled(self) -> bool:
+        """Budget 0 = kostenpflichtige Modelle sind bewusst abgeschaltet."""
+        return self.daily_limit <= 0 or self.monthly_limit <= 0
+
+    @property
     def warning(self) -> bool:
         """Warnschwelle erreicht, aber noch nicht überschritten."""
-        if self.exceeded:
+        if self.exceeded or self.paid_disabled:
             return False
         return max(self.daily_ratio, self.monthly_ratio) >= self.warn_at_ratio
 
     def describe(self) -> str:
+        if self.paid_disabled:
+            return (
+                "Kostenlos-Modus: kostenpflichtige Modelle sind aus (Budget 0 $). "
+                f"Bisher ausgegeben: heute ${self.spent_today:.2f}, Monat ${self.spent_month:.2f}"
+            )
         if self.daily_exceeded:
             return (
                 f"Tagesbudget erreicht: ${self.spent_today:.2f} von ${self.daily_limit:.2f}. "

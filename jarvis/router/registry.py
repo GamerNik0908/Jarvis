@@ -66,9 +66,12 @@ def create_providers(config: RouterConfig, secrets: SecretStore) -> dict[str, LL
     load_provider_plugins(config.provider_modules)
     providers: dict[str, LLMProvider] = {}
     for name, provider_config in config.providers.items():
-        cls = _REGISTRY.get(name)
+        kind = provider_config.type or name
+        cls = _REGISTRY.get(kind)
         if cls is None:
-            log.error("Unbekannter Anbieter '%s' in config.yaml – kein Plugin registriert", name)
+            log.error(
+                "Unbekannter Anbieter-Typ '%s' in config.yaml – kein Plugin registriert", kind
+            )
             continue
-        providers[name] = cls(provider_config, secrets)
+        providers[name] = cls(provider_config, secrets, instance_name=name)
     return providers

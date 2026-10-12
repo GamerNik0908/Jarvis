@@ -4,21 +4,41 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jarvis-assistant"
-version = "0.1.0"
+version = "1.0.0"
 description = "JARVIS - persoenlicher KI-Assistent fuer Windows 11"
 readme = "README.md"
 requires-python = ">=3.11"
 # Muss mit requirements.txt uebereinstimmen.
 dependencies = [
-    "anthropic>=1.13,<2",
     "pydantic>=2.7,<3",
     "PyYAML>=6.0",
     "python-dotenv>=1.0",
     "keyring>=25.0",
     "psutil>=6.0",
+    "platformdirs>=4.2",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "pillow>=10.0",
     "rich>=13.7",
     "prompt_toolkit>=3.0.43",
-    "platformdirs>=4.2",
+    "google-genai>=2.20",
+    "anthropic>=1.13,<2",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "websockets>=13",
+    "python-multipart>=0.0.9",
+    "ddgs>=9.0",
+    "send2trash>=1.8",
+    "google-api-python-client>=2.150",
+    "google-auth-oauthlib>=1.2",
+    "faster-whisper>=1.1",
+    "edge-tts>=7.0",
+    "sounddevice>=0.5",
+    'openwakeword>=0.6; sys_platform == "win32"',
+    'pyttsx3>=2.98; sys_platform == "win32"',
+    'pystray>=0.19; sys_platform == "win32"',
+    'pynput>=1.7; sys_platform == "win32"',
+    'pywebview>=5.0; sys_platform == "win32"',
 ]
 
 [project.optional-dependencies]
@@ -40,6 +60,9 @@ jarvis = "jarvis.cli:main"
 [tool.setuptools.packages.find]
 include = ["jarvis*"]
 
+[tool.setuptools.package-data]
+"jarvis.ui.web" = ["static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
@@ -56,7 +79,12 @@ ignore = [
     "RUF001",  # deutsche Typografie (z. B. Gedankenstriche) in Strings ist gewollt
     "RUF002",
     "RUF003",
+    "E501",    # Zeilenlaenge regelt der Formatter; lange Texte/URLs bleiben am Stueck
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests dürfen blockierende Dateioperationen in async-Funktionen nutzen.
+"tests/**" = ["ASYNC109", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -65,5 +93,9 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["keyring.*", "psutil.*"]
+module = [
+    "keyring.*", "psutil.*", "googleapiclient.*", "google_auth_oauthlib.*", "google.oauth2.*",
+    "google.auth.*", "ddgs.*", "edge_tts.*", "faster_whisper.*", "openwakeword.*",
+    "sounddevice.*", "pystray.*", "pynput.*", "webview.*", "send2trash.*", "av.*", "pyttsx3.*",
+]
 ignore_missing_imports = true

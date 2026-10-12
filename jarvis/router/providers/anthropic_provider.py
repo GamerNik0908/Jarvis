@@ -15,13 +15,21 @@ Besonderheiten:
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from typing import Any
 
 import anthropic
 
 from jarvis.core.config import ProviderConfig
-from jarvis.router.base import ChatRequest, ChatResponse, LLMProvider, StreamChunk, UsageSegment
+from jarvis.router.base import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    LLMProvider,
+    StreamChunk,
+    ToolCall,
+    UsageSegment,
+)
 from jarvis.router.errors import (
     ModelNotFoundError,
     ProviderAuthError,
@@ -35,6 +43,57 @@ from jarvis.security.secrets import SecretStore
 log = logging.getLogger(__name__)
 
 REFUSAL_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+_BLOCKS_KEY = "anthropic_content"
+
+
+def to_anthropic_messages(messages: Sequence[ChatMessage], provider: str) -> list[dict[str, Any]]:
+    """Neutraler Verlauf → Messages-API-Format (Werkzeug-Ergebnisse als ``tool_result``).
+
+    Antworten desselben Anbieters werden mit ihren Original-Blöcken (inkl.
+    Thinking-Blöcken) zurückgeschickt – das verlangen aktuelle Claude-Modelle
+    bei Werkzeug-Schleifen.
+    """
+    result: list[dict[str, Any]] = []
+    pending: list[dict[str, Any]] = []
+
+    def flush() -> None:
+        if pending:
+            result.append({"role": "user", "content": list(pending)})
+            pending.clear()
+
+    for message in messages:
+        if message.role == "tool":
+            pending.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": message.tool_call_id,
+                    "content": message.content,
+                }
+            )
+            continue
+        flush()
+        if message.role == "user":
+            result.append({"role": "user", "content": message.content})
+            continue
+        data = message.provider_data or {}
+        if data.get("provider") == provider and data.get(_BLOCKS_KEY):
+            result.append({"role": "assistant", "content": list(data[_BLOCKS_KEY])})
+            continue
+        blocks: list[dict[str, Any]] = []
+        if message.content:
+            blocks.append({"type": "text", "text": message.content})
+        for call in message.tool_calls:
+            blocks.append(
+                {
+                    "type": "tool_use",
+                    "id": call.id,
+                    "name": call.name,
+                    "input": dict(call.arguments),
+                }
+            )
+        result.append({"role": "assistant", "content": blocks or message.content})
+    flush()
+    return result
 
 
 def map_anthropic_error(exc: anthropic.AnthropicError, *, model: str) -> ProviderError:
@@ -84,8 +143,10 @@ class AnthropicProvider(LLMProvider):
     name = "anthropic"
     default_api_key_name = "ANTHROPIC_API_KEY"
 
-    def __init__(self, config: ProviderConfig, secrets: SecretStore) -> None:
-        super().__init__(config, secrets)
+    def __init__(
+        self, config: ProviderConfig, secrets: SecretStore, *, instance_name: str | None = None
+    ) -> None:
+        super().__init__(config, secrets, instance_name=instance_name)
         self._client: anthropic.AsyncAnthropic | None = None
         self._prompt_caching = bool(config.options.get("prompt_caching", True))
 
@@ -94,7 +155,7 @@ class AnthropicProvider(LLMProvider):
             api_key = self.api_key()
             if not api_key:
                 raise ProviderAuthError(
-                    f"Kein API-Key gefunden ({self.api_key_name})", provider=self.name
+                    f"Kein API-Key gefunden ({self.api_key_name})", provider=self.instance_name
                 )
             self._client = anthropic.AsyncAnthropic(
                 api_key=api_key,
@@ -107,10 +168,15 @@ class AnthropicProvider(LLMProvider):
     def build_params(self, request: ChatRequest) -> dict[str, Any]:
         """Übersetzt eine :class:`ChatRequest` in die Parameter des SDK-Aufrufs."""
         params: dict[str, Any] = {
-            "model": request.model,
+            "model": request.target_model,
             "max_tokens": request.max_tokens,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": to_anthropic_messages(request.messages, self.instance_name),
         }
+        if request.tools:
+            params["tools"] = [
+                {"name": t.name, "description": t.description, "input_schema": dict(t.parameters)}
+                for t in request.tools
+            ]
         if request.system:
             params["system"] = request.system
         if request.effort:
@@ -137,6 +203,17 @@ class AnthropicProvider(LLMProvider):
     def to_response(self, message: Any, request: ChatRequest) -> ChatResponse:
         """Wandelt die finale SDK-Nachricht in eine :class:`ChatResponse`."""
         text = "".join(block.text for block in message.content if block.type == "text")
+        calls = [
+            ToolCall(id=str(block.id), name=str(block.name), arguments=dict(block.input or {}))
+            for block in message.content
+            if block.type == "tool_use"
+        ]
+        raw_blocks = [
+            block.model_dump(mode="json", exclude_none=True)
+            if hasattr(block, "model_dump")
+            else block
+            for block in message.content
+        ]
         served_model = str(message.model or request.model)
 
         segments: list[UsageSegment] = []
@@ -175,11 +252,13 @@ class AnthropicProvider(LLMProvider):
 
         return ChatResponse(
             text=text,
-            provider=self.name,
+            provider=self.instance_name,
             model=served_model,
             requested_model=request.model,
             stop_reason=message.stop_reason,
             usage=segments,
+            tool_calls=calls,
+            provider_data={"provider": self.instance_name, _BLOCKS_KEY: raw_blocks},
             refused=refused,
             refusal_category=category,
             provider_fallback_used=fallback_used,
