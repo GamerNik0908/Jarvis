@@ -135,7 +135,9 @@ class EventBus:
             running = None
         for sub in targets:
             if loop is not None and running is not loop:
-                loop.call_soon_threadsafe(_put, sub.queue, event)
+                # Beim Herunterfahren ist die Schleife evtl. schon zu – dann nur verwerfen.
+                with contextlib.suppress(RuntimeError):
+                    loop.call_soon_threadsafe(_put, sub.queue, event)
             else:
                 _put(sub.queue, event)
         return event
@@ -143,7 +145,7 @@ class EventBus:
     def recent(self, limit: int = 50, *, prefix: str = "") -> list[Event]:
         with self._lock:
             items = [e for e in self._history if e.type.startswith(prefix)]
-        return items[-limit:]
+        return items[-limit:] if limit > 0 else []
 
 
 def _put(queue: asyncio.Queue[Event], event: Event) -> None:

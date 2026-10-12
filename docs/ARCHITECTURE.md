@@ -1,185 +1,202 @@
 # JARVIS – Architektur
 
+Dieses Dokument richtet sich an Entwickler – und an Claude Code, wenn JARVIS sich selbst
+verbessert. Wer etwas ändert, liest es zuerst.
+
 ## Leitprinzipien
 
-1. **Jede Phase ergibt ein lauffähiges Programm.** Neue Phasen ergänzen Module, statt
-   bestehende Schnittstellen umzubauen.
-2. **Sicherheit sitzt im Kern, nicht in der Oberfläche.** Budget-Sperren, Berechtigungen
-   und Not-Aus greifen im Router bzw. vor jedem Tool-Aufruf – egal ob die Anfrage aus dem
-   Chat, per Sprache oder aus einem Hintergrundprojekt kommt.
-3. **Code und Daten sind getrennt.** Der Code liegt im Git-Repository (das JARVIS ab
-   Phase 8 selbst verändern darf), alle Daten in `%LOCALAPPDATA%\Jarvis`.
-4. **Alles ist ein Plugin**: KI-Anbieter, Tools, später Wake-Word- und TTS-Engines.
+1. **Kostenlos zuerst.** Claude läuft über Claude Code mit dem Pro-Abo, Gemini über die
+   kostenlose Stufe, lokale Modelle über Ollama. Das globale Budget steht auf 0 $ und sperrt
+   damit alle kostenpflichtigen Modelle im Router.
+2. **Sicherheit sitzt im Kern.** Berechtigungen, Not-Aus und Protokoll greifen im
+   `ToolExecutor` – egal ob ein Werkzeug aus dem Chat, per Sprache, aus einem Projekt oder
+   von Claude Code (MCP-Brücke) aufgerufen wird.
+3. **Code und Daten sind getrennt.** Code im Git-Repository (das JARVIS selbst verändern
+   darf), Daten in `%LOCALAPPDATA%\Jarvis` (`JARVIS_DATA_DIR`).
+4. **Alles ist ein Plugin**: Werkzeuge (`jarvis/plugins/`), KI-Anbieter
+   (`jarvis/router/providers/`), Sprach-Engines (`jarvis/voice/engines.py`).
+5. **Geschützter Kern.** `jarvis/security/`, `jarvis/self_improve/`,
+   `jarvis/core/supervisor.py`, `.env`, `config.local.yaml` und die config-Abschnitte
+   `security`, `budget`, `secrets`, `self_improve` darf die Selbstverbesserung nicht ändern
+   (`jarvis/security/guard.py`).
+
+## Prozesse
+
+```text
+Windows-Anmeldung ──► pythonw -m jarvis run --background        (Autostart, HKCU\…\Run)
+                        │  Supervisor (jarvis/core/supervisor.py)
+                        │  · startet den Dienst neu bei Exit-Code 75 (Update) oder Absturz
+                        │  · rollt ein Update zurück, wenn der Dienst danach nicht gesund startet
+                        ▼
+                      python -m jarvis service                   (jarvis/core/service.py)
+                        ├─ Web-Server (FastAPI/uvicorn, 127.0.0.1:8765) ◄── Dashboard, Chat-Fenster,
+                        │                                                    CLI (jarvis stop/status/improve)
+                        ├─ ChatService → Agent → Router → Anbieter
+                        ├─ ProjectManager (Hintergrund-Worker)
+                        ├─ ImprovementManager (Selbstverbesserung, Selbst-Check)
+                        ├─ Scheduler (Erinnerungen, Tagesbericht, Selbst-Check)
+                        ├─ VoiceService (Wake-Word, Whisper, TTS – eigener Thread)
+                        └─ Desktop (Tray, globale Hotkeys, Benachrichtigungen)
+
+claude -p … (Claude Code) ──► python -m jarvis mcp-bridge ──HTTP──► /api/tools/call
+```
+
+`jarvis` ohne Befehl startet den Supervisor im Hintergrund und öffnet das Dashboard.
+`jarvis chat` / `jarvis ask` laufen ohne Dienst direkt im Terminal (Claude dann ohne
+Werkzeuge, weil die MCP-Brücke den Dienst braucht).
 
 ## Ordnerstruktur
 
-`[P1]` = vorhanden, `[Pn]` = geplant in Phase n.
+```text
+jarvis/
+├── cli.py                    Befehle: start, run, service, stop, status, window, setup, chat, ask,
+│                             improve, google, secrets, autostart, models, cost, hw, check
+├── core/
+│   ├── app.py                JarvisApp: verdrahtet alles (bootstrap), notify(), system_prompt()
+│   ├── config.py             pydantic-Schema, config.yaml + config.local.yaml, update_local_config()
+│   ├── agent.py              Agent-Loop: Router-Stream → Werkzeuge → Ergebnis zurück → weiter
+│   ├── chat.py               ChatService: ein laufender Agent je Gespräch, Abbruch
+│   ├── service.py            Hintergrunddienst (siehe oben)
+│   ├── supervisor.py         [geschützt] Neustart + Rollback
+│   ├── scheduler.py          minütlicher Takt: Erinnerungen, Tagesbericht, Selbst-Check
+│   ├── events.py             EventBus (thread-sicher) → WebSocket /ws, Tray, Sprache
+│   ├── db.py                 SQLite (WAL) mit Migrationen
+│   ├── stores.py             Erinnerungen, Dashboard-Karten, Bildergalerie
+│   ├── setup_checks.py       Einrichtungsstatus (Dashboard „Einrichtung“, jarvis check)
+│   ├── hardware.py           CPU/RAM/GPU/VRAM → Empfehlung lokaler Modelle und Whisper-Größe
+│   ├── autostart.py          HKCU-Run-Eintrag
+│   └── tasks.py, timeutil.py, jsonutil.py, logging_setup.py, types.py
+├── router/
+│   ├── base.py               ChatMessage, ToolSpec, ToolCall, ChatRequest/Response, LLMProvider
+│   ├── router.py             Modellwahl je Aufgabenart, Fallback, Werkzeug-/Datenschutz-Filter,
+│   │                         Pausen bei Limits (retry_after_s), Budget, Kostenbuchung
+│   ├── costs.py              Verbrauch, Tages-/Monatslimit, Kostenlos-Modus
+│   ├── registry.py           Anbieter-Plugins (@register_provider, Entry-Points)
+│   └── providers/            claude_code (Pro-Abo) · gemini · ollama · openai_compat · anthropic (API)
+├── integrations/
+│   ├── claude_code.py        Claude-Code-CLI headless (stream-json), Fehlerklassen, Limit-Reset
+│   ├── mcp_bridge.py         minimaler MCP-Server (stdio) → JARVIS-Werkzeuge per HTTP
+│   └── google.py             Gmail (mehrere Konten) + Kalender, OAuth pro Konto
+├── plugins/                  Werkzeuge (siehe unten), executor.py = Berechtigungen + Protokoll
+├── memory/                   store.py (Langzeitgedächtnis: Embeddings oder FTS5), conversations.py
+├── projects/manager.py       Projekte: Planung, Aufgaben, Prüfung, Rückfragen, Tagesbericht
+├── self_improve/             [geschützt] manager.py, git.py (Worktrees), sandbox.py (Tests)
+├── security/                 [geschützt] permissions, audit, killswitch, guard, paths, secrets, redaction
+├── voice/                    audio.py, engines.py (WakeWord, SpeechToText, TextToSpeech), service.py
+└── ui/
+    ├── web/server.py         REST-API + WebSocket, Token- und Host-Prüfung
+    ├── web/static/           Dashboard (Vanilla-JS-SPA: index.html, app.js, style.css)
+    ├── desktop.py            Tray, Hotkeys, Chat-Fenster (pywebview), Benachrichtigungen
+    ├── terminal.py, render.py, setup_wizard.py
+```
+
+## Ablauf einer Anfrage
+
+1. Eingabe (Dashboard, Sprache, Terminal, Projekt) → `ChatService.start()` bzw. `Agent.run()`.
+2. `Agent` baut den System-Prompt (Datum, Nutzer, passende Erinnerungen aus dem Gedächtnis)
+   und die Werkzeugliste (`executor.specs()` – nur erlaubte und verfügbare Werkzeuge).
+3. `ModelRouter.stream()` wählt das erste passende Modell der Route
+   (`router.routes.<aufgabe>` in config.yaml) und filtert:
+   - Werkzeuge nötig → nur `supports_tools`-Modelle, deren Anbieter Werkzeuge gerade kann,
+   - Gespräch ist *sensibel* (ein Werkzeug lieferte private Daten) → nur `trusted`-Modelle
+     (Claude-Abo, lokal) – nie die kostenlose Gemini-Stufe,
+   - pausierte Modelle (Kontingent erschöpft) und gesperrte Anbieter (Auth-Fehler),
+   - Kosten > 0 bei Budget 0.
+   Fällt ein Modell aus, bevor Text kam, übernimmt das nächste.
+   Gibt es kein Modell mit Werkzeugen, antwortet der Agent ohne Werkzeuge.
+4. Liefert das Modell Werkzeug-Aufrufe, führt `ToolExecutor.execute()` sie aus
+   (Berechtigung → ggf. Bestätigung → Not-Aus-Prüfung → Ausführung mit Timeout →
+   Protokoll → Ereignisse `tool.started/finished`, `image.new`) und gibt das Ergebnis zurück.
+5. Antwort, Werkzeuge und Bilder landen im Gesprächsverlauf (`ConversationStore`);
+   Ereignisse `chat.delta/final/error` gehen live ans Dashboard.
+
+**Claude Code als Anbieter:** Im Chat-Modus läuft `claude -p` ohne eigene Werkzeuge
+(`--tools ""`), im Agent-Modus mit `--mcp-config` auf die JARVIS-MCP-Brücke und
+`--permission-mode dontAsk` (nur `mcp__jarvis` erlaubt). Claude ruft die JARVIS-Werkzeuge
+dann selbst auf – Berechtigungen, Bestätigungen und Protokoll laufen trotzdem durch den
+`ToolExecutor`. `ANTHROPIC_API_KEY` wird aus der Umgebung entfernt, damit immer das Abo
+genutzt wird; `--bare` darf nicht verwendet werden (das erzwingt API-Keys).
+
+## Werkzeuge schreiben
+
+Ein Plugin ist ein Modul in `jarvis/plugins/` – es wird automatisch geladen:
+
+```python
+from typing import Any
+
+from jarvis.plugins.base import ToolContext, ToolResult, obj, tool
+from jarvis.security.permissions import Level
+
+
+@tool(
+    name="print_text",                       # eindeutiger Name (englisch, snake_case)
+    description="Print a text on the default Windows printer.",   # fürs Modell, englisch
+    parameters=obj({"text": {"type": "string"}}, required=["text"]),
+    level=Level.CONFIRM,                     # AUTO | CONFIRM | FORBIDDEN oder Funktion(args, ctx)
+    category="system",
+    summary=lambda args: f"Drucken: {args['text'][:60]}",   # Text im Bestätigungsdialog
+)
+async def print_text(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    ...
+    return ToolResult("Gedruckt.")            # ok=False / ToolResult.error(...) bei Fehlern
+```
+
+- Blockierendes (Dateien, Windows-APIs, `requests`) mit `asyncio.to_thread` auslagern.
+- HTTP über `ctx.app.http()` (gemeinsamer httpx-Client mit User-Agent).
+- Private Daten zurückgeben → `ToolResult(..., sensitive=True)`.
+- Bilder → `ctx.app.images.save(...)` und `images=[ImageRef(url=..., caption=..., path=...)]`.
+- Dateipfade immer über `ctx.app.paths` (PathPolicy) prüfen bzw. deren Level nutzen.
+- Windows-spezifisches mit `sys.platform == "win32"` absichern; Tests laufen auch unter Linux.
+- Pro Werkzeug Tests in `tests/` (siehe `tests/test_tools_basic.py`).
+
+## Anbieter schreiben
+
+`LLMProvider` aus `jarvis/router/base.py` ableiten, mit `@register_provider` registrieren,
+`stream()` implementieren (Text-Chunks, am Ende genau ein `StreamChunk(response=...)` mit
+`ChatResponse`), Fehler als `ProviderAuthError` / `ProviderUnavailableError(retry_after_s=…)` /
+`ProviderRequestError` melden. Modelle und Routen kommen in `config.yaml`.
+
+## Dashboard
+
+`jarvis/ui/web/server.py` stellt die API bereit (alle Pfade unter `/api/…`, Token im Header
+`X-Jarvis-Token` oder `?t=`; Host muss `127.0.0.1`/`localhost` sein). Live-Ereignisse kommen
+über `/ws`. Das Frontend ist eine Vanilla-JS-SPA ohne Build-Schritt
+(`jarvis/ui/web/static/app.js`): Seiten sind `render<Name>(view)`-Funktionen, registriert in
+der `pages`-Tabelle; DOM-Aufbau mit dem Helfer `h(tag, attrs, ...children)`.
+
+## Selbstverbesserung
 
 ```text
-Jarvis/
-├── config.yaml                 Standardkonfiguration (eigene Werte: config.local.yaml)   [P1]
-├── .env.example                Vorlage für API-Keys (besser: Credential Manager)         [P1]
-├── pyproject.toml              Paket, Entry-Points, pytest/ruff/mypy                     [P1]
-├── requirements.txt            Laufzeitpakete (requirements-dev.txt: + Testwerkzeuge)     [P1]
-├── CHANGELOG.md                auch Protokoll der Selbstverbesserungen ab P8             [P1]
-├── scripts/
-│   ├── install.ps1             Installation unter Windows                                [P1]
-│   ├── jarvis.cmd              Starter                                                   [P1]
-│   └── autostart.ps1 …         Aufgabenplanung, Deinstallation                           [P5/P9]
-├── docs/ARCHITECTURE.md        dieses Dokument                                           [P1]
-├── tests/                      pytest, ohne Netzwerk und ohne API-Kosten                 [P1]
-└── jarvis/
-    ├── cli.py                  jarvis chat|ask|hw|models|cost|check|secrets              [P1]
-    ├── core/
-    │   ├── config.py           Laden + Validieren der Konfiguration                      [P1]
-    │   ├── logging_setup.py    rotierende Logs, Schwärzung                               [P1]
-    │   ├── db.py               SQLite mit Migrationen                                    [P1]
-    │   ├── hardware.py         CPU/RAM/GPU/VRAM, Modell-Empfehlung                       [P1]
-    │   ├── conversation.py     Kurzzeitgedächtnis                                        [P1]
-    │   ├── app.py              verdrahtet alle Bausteine                                 [P1]
-    │   ├── agent.py            Agent-Loop: planen → Tool → ausführen → prüfen            [P2]
-    │   └── worker.py           Hintergrund-Worker für Projekte                           [P5]
-    ├── router/
-    │   ├── base.py             Datentypen + LLMProvider-Schnittstelle                    [P1]
-    │   ├── registry.py         Anbieter-Plugins                                          [P1]
-    │   ├── router.py           Modellwahl, Fallback, Budget, Kosten                      [P1]
-    │   ├── costs.py            Preise, Verbrauch, Limits                                 [P1]
-    │   ├── scoring.py          automatische Modellwahl (Qualität/Kosten/Tempo/Privat)    [P3]
-    │   └── providers/          anthropic [P1] · openai, gemini, ollama [P3]
-    ├── security/               darf von JARVIS selbst NIE verändert werden
-    │   ├── secrets.py          .env + Windows Credential Manager                         [P1]
-    │   ├── redaction.py        Secrets aus Logs entfernen                                [P1]
-    │   ├── permissions.py      Stufen: auto / bestätigen / verboten                      [P2]
-    │   ├── audit.py            vollständiges Aktionsprotokoll                            [P2]
-    │   ├── killswitch.py       Not-Aus (Hotkey, CLI, Dashboard)                          [P2]
-    │   └── integrity.py        Prüfsummen geschützter Dateien                            [P8]
-    ├── plugins/                files, shell, apps, sysinfo [P2] · web, browser,
-    │                           mail, calendar, reminders [P3+]
-    ├── memory/                 ChromaDB-Langzeitgedächtnis, Fakten, Zusammenfassungen    [P4]
-    ├── projects/               Ziele, Pläne, Aufgaben-Queue, Tagesberichte               [P5]
-    ├── voice/                  Wake-Word, faster-whisper, Piper/ElevenLabs               [P6]
-    ├── ui/                     terminal, render [P1] · tray, hotkeys, Fenster, Dashboard [P7]
-    └── self_improve/           Git-Worktrees, Sandbox, Tests, Freigabe, Rollback         [P8]
+Wunsch ─► ImprovementManager.request()
+          ├─ git worktree add <data>/worktrees/<id>  (Branch jarvis/verbesserung-<id>-<slug>)
+          ├─ Claude Code im Worktree (acceptEdits, erlaubte Werkzeuge, geschützte Pfade gesperrt)
+          ├─ Guard: geschützte Dateien/config-Abschnitte geändert? → verwerfen
+          ├─ pytest im Worktree (PYTHONPATH = Worktree; eigenes venv nur bei neuen Paketen)
+          │    └─ rot → Nachbesserung per --resume (max_fix_rounds)
+          ├─ Status „bereit“: Zusammenfassung + Diff im Dashboard
+          └─ Freigabe ─► merge --no-ff ─► CHANGELOG ─► update_pending.json ─► Neustart (Exit 75)
+                          Supervisor: neuer Dienst nicht gesund (service_healthy fehlt) → git reset
+                          auf den alten Stand + Hinweis im Dashboard
 ```
 
-Datenordner (`%LOCALAPPDATA%\Jarvis`): `jarvis.db`, `logs\`, `hardware.json`,
-`chat_history.txt`; später `chroma\`, `projects\`, `sandbox\`, `reports\`.
+Der Selbst-Check (`self_check`) liest nur: Claude Code analysiert Code und protokollierte
+Fehler der letzten 7 Tage und legt Vorschläge an, die der Benutzer mit „Umsetzen“ startet.
 
-## Zusammenspiel der Module
+## Daten (`%LOCALAPPDATA%\Jarvis`)
 
-```mermaid
-flowchart TB
-    subgraph UI["Oberflächen"]
-        T["Terminal-Chat (P1)"]
-        G["Tray, Hotkey, Chat-Fenster (P7)"]
-        V["Sprache: Wake-Word → Whisper → TTS (P6)"]
-        W["Web-Dashboard (P7)"]
-    end
-
-    A["Agent-Loop (P2)<br/>planen → Tool wählen → ausführen → prüfen"]
-    P["Projekt-Worker (P5)<br/>mehrtägige Projekte, Prioritäten, Tagesbericht"]
-    M["Gedächtnis (P4)"]
-    R["KI-Router (P1)<br/>Modellwahl · Fallback · Budget · Kosten"]
-    S["Sicherheit<br/>Berechtigungen · Audit · Not-Aus (P2)"]
-    PL["Plugins / Tools (P2+)"]
-    SI["Selbstverbesserung (P8)"]
-
-    subgraph PROV["Anbieter-Plugins"]
-        AN["Claude (P1)"]
-        OA["GPT (P3)"]
-        GE["Gemini (P3)"]
-        OL["Ollama lokal (P3)"]
-    end
-
-    DB[("SQLite")]
-    VDB[("ChromaDB")]
-
-    T --> A
-    G --> A
-    V --> A
-    W --> DB
-    P --> A
-    A --> R
-    A <--> M
-    A -->|"jeder Tool-Aufruf"| S
-    S --> PL
-    R --> AN
-    R --> OA
-    R --> GE
-    R --> OL
-    R --> DB
-    M --> VDB
-    P --> DB
-    S --> DB
-    SI -->|"Branch → Tests in Sandbox → Freigabe"| PL
-    SI -. "darf nicht ändern" .-> S
-```
-
-### Ablauf einer Chat-Nachricht (Phase 1)
-
-1. `TerminalChat` hängt die Nachricht an die `Conversation` (Kurzzeitgedächtnis).
-2. `ModelRouter.stream()` holt die Fallback-Kette der Aufgabenart aus `config.yaml`,
-   überspringt nicht nutzbare Modelle (kein Key, deaktiviert, Anbieter gesperrt) und
-   prüft vor jedem kostenpflichtigen Modell das Budget.
-3. Das Anbieter-Plugin (`AnthropicProvider`) streamt die Antwort. SDK-Fehler werden in
-   Router-Fehler übersetzt: *nicht erreichbar* → nächstes Modell; *ungültige Anfrage* →
-   Abbruch; *Auth-Fehler* → Anbieter für die Sitzung sperren, nächstes Modell.
-4. Nach Abschluss berechnet der Router die Kosten je tatsächlich genutztem Modell und
-   schreibt sie in `model_usage` (SQLite). Abgebrochene Antworten werden geschätzt.
-5. Die UI zeigt Text, Nutzungszeile und Hinweise (Fallback, Ablehnung, Budget).
-
-Ab Phase 2 steht zwischen 1. und 2. der Agent-Loop, der eine Aufgabe in Teilschritte
-zerlegt und für jeden Schritt eine Aufgabenart (und damit ein Modell) wählt.
-
-## Wichtige Entscheidungen
-
-| Entscheidung | Begründung |
+| Pfad | Inhalt |
 |---|---|
-| Ein Paket `jarvis/` statt loser Top-Level-Ordner | Namen wie `memory` oder `core` kollidieren sonst mit anderen Paketen; ermöglicht `python -m jarvis` und Entry-Points für Plugins. |
-| Daten in `%LOCALAPPDATA%\Jarvis` | Selbstverbesserung arbeitet mit Git-Branches und Rollbacks – die dürfen nie Projekte, Gedächtnis oder Logs zurücksetzen. |
-| Routing-Tabelle mit Fallback-Ketten in `config.yaml` | Nachvollziehbar und ohne Code änderbar. Phase 3 ergänzt automatisches Scoring hinter derselben Schnittstelle. |
-| Budget-Sperre im Router | Kein Aufrufer (Chat, Projekt, Plugin) kann sie umgehen. Kostenlose lokale Modelle bleiben bei erreichtem Budget nutzbar. |
-| Kein Fallback nach begonnener Ausgabe | Ein anderes Modell kann eine halbe Antwort nicht nahtlos fortsetzen; lieber klarer Fehler. |
-| Streaming und Strg+C nur für die laufende Antwort | Lange Antworten sind sofort sichtbar; ein Abbruch beendet nicht das Programm und schließt die HTTP-Verbindung, damit keine weiteren Tokens anfallen. |
-| Keys: Credential Manager bevorzugt, `.env` möglich | Kein Klartext auf der Platte nötig; `.env` bleibt für einfache Setups. Schwärzung kennt registrierte Werte und typische Key-Formate. |
-| Claude: `effort` statt `temperature`, Prompt-Caching, Refusal-Fallback | Aktuelle Claude-Modelle lehnen `temperature` ab; `effort` steuert Qualität/Kosten. Der System-Prompt enthält nur das Datum (keine Uhrzeit), damit der Cache greift. |
-| SQLite im WAL-Modus | Das Dashboard (P7) kann lesen, während Chat und Worker schreiben. |
-| Pro Prozessrolle eine eigene Logdatei | Unter Windows sperren sich mehrere Prozesse sonst gegenseitig die Rotation. |
+| `jarvis.db` | SQLite: Verbrauch, Gespräche, Gedächtnis (+FTS5), Erinnerungen, Karten, Bilder, Projekte, Aufgaben, Rückfragen, Aktionsprotokoll, Verbesserungen, Zustände |
+| `logs/` | rotierende Logs je Rolle (`jarvis-service.log`, …), Keys geschwärzt |
+| `images/` | erstellte und gespeicherte Bilder |
+| `google/credentials.json`, `google/tokens/` | OAuth-Client und Zugänge pro Gmail-Konto |
+| `worktrees/`, `improvements/` | Arbeitskopien und Logs der Selbstverbesserung |
+| `api_token` | Zugriffsschlüssel für Dashboard/API |
+| `hardware.json` | Hardware-Report (24 h zwischengespeichert) |
 
-## Ehrliche Einschätzung riskanter Anforderungen
+## Tests und Qualität
 
-Diese Punkte setze ich um, aber anders als man naiv vermuten würde:
-
-- **Windows-Dienst**: Dienste laufen in „Session 0“ ohne Desktop, Tray-Icon, Hotkeys und
-  (praktisch) ohne Mikrofon. Besser: ein Benutzerprozess, der per **Aufgabenplanung bei
-  der Anmeldung** startet (Phase 5/9). Er kann trotzdem im Hintergrund an Projekten
-  weiterarbeiten.
-- **„Sicherheitscode darf nicht verändert werden“**: Ein Prozess, der unter deinem Konto
-  läuft, kann technisch jede Datei ändern, die du ändern kannst. Echter Schutz braucht
-  mehrere Ebenen: (1) Selbstverbesserung arbeitet nur in einem Git-Worktree und jeder
-  Diff, der `PROTECTED_PATHS` berührt, wird verworfen; (2) Prüfsummen der geschützten
-  Dateien werden beim Start geprüft; (3) die Sandbox läuft in Docker bzw. Windows Sandbox
-  ohne Schreibzugriff auf das Haupt-Repository; (4) optional schreibgeschützte NTFS-Rechte.
-- **„Sandbox = separates venv“**: Ein venv trennt nur Pakete, nicht Dateisystem oder
-  Netzwerk. Für generierten Code empfehle ich **Docker Desktop (WSL2)** oder Windows
-  Sandbox; ein venv nur als Notlösung.
-- **Pakete selbst installieren**: Gefahr durch Typosquatting/Schadpakete. Neue Pakete
-  nur in der Sandbox, mit festgepinnter Version, und Übernahme ins Hauptsystem nur nach
-  deiner Bestätigung.
-- **Käufe**: Ich empfehle, Zahlungen nie zu automatisieren. JARVIS darf vorbereiten
-  (Warenkorb, Vergleich), der Kauf selbst bleibt immer eine bestätigungspflichtige oder
-  manuelle Aktion; Zahlungsdaten speichert JARVIS nicht.
-- **Mehrtägige Autonomie**: Größtes Risiko sind Endlosschleifen und Kosten. Darum gibt es
-  pro Projekt Budget, Schrittlimits, Checkpoints nach jedem Schritt und eine
-  „Feststeck“-Erkennung, die dich fragt statt weiterzuprobieren.
-
-## Sicherheitsmodell (Überblick über alle Phasen)
-
-| Ebene | Mechanismus | Phase |
-|---|---|---|
-| Secrets | Credential Manager / `.env`, nie im Code, Schwärzung in Logs | 1 |
-| Kosten | Tages-/Monatslimit im Router, Projektbudget, Pause + Rückfrage | 1 / 5 |
-| Aktionen | Stufen *automatisch* (lesen, Systeminfo) · *Bestätigung* (löschen, Systemänderung, E-Mail senden, Admin, Käufe) · *verboten* | 2 |
-| Nachvollziehbarkeit | Aktionsprotokoll in SQLite: wer, was, warum, Ergebnis | 2 |
-| Not-Aus | globaler Hotkey + CLI + Dashboard; stoppt Agent-Loops, Projekte, laufende Prozesse | 2 / 7 |
-| Selbstverbesserung | Branch/Worktree, Tests in Sandbox, Diff-Freigabe, Rollback, geschützte Pfade, Prüfsummen | 8 |
+- `python -m pytest -q` – ohne Netzwerk und ohne Kosten; Anbieter werden mit
+  `httpx.MockTransport` bzw. dem `FakeProvider` aus `tests/conftest.py` simuliert.
+- `python -m ruff check .` und `python -m ruff format .` (Zeilenlänge 100).
+- `python -m mypy` (strict) für das Paket `jarvis`.

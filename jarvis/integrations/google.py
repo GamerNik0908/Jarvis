@@ -26,6 +26,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+LOGIN_TIMEOUT_S = 300
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/calendar.events",
@@ -42,6 +44,9 @@ def _safe_name(email: str) -> str:
     return re.sub(r"[^a-zA-Z0-9@._-]", "_", email.lower())
 
 
+_BLOCK_TAGS = {"p", "div", "tr", "li"}
+
+
 class _TextExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -51,23 +56,36 @@ class _TextExtractor(HTMLParser):
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"script", "style", "head"}:
             self._skip += 1
-        elif tag in {"br", "p", "div", "tr", "li"}:
+        elif tag == "br":
             self.parts.append("\n")
+        elif tag in _BLOCK_TAGS:
+            self._line_break()
+        elif tag in {"td", "th"}:
+            self.parts.append(" ")  # Tabellenzellen nicht zusammenkleben
 
     def handle_endtag(self, tag: str) -> None:
         if tag in {"script", "style", "head"} and self._skip:
             self._skip -= 1
+        elif tag in _BLOCK_TAGS:
+            self._line_break()
 
     def handle_data(self, data: str) -> None:
         if not self._skip:
             self.parts.append(data)
 
+    def _line_break(self) -> None:
+        # Blöcke stehen auf eigenen Zeilen – auch Text nach dem schließenden Tag.
+        if self.parts and not self.parts[-1].endswith("\n"):
+            self.parts.append("\n")
+
 
 def html_to_text(html: str) -> str:
     parser = _TextExtractor()
     parser.feed(html)
-    text = "".join(parser.parts)
-    return re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", text)).strip()
+    parser.close()  # sonst bleibt Text am Ende hängen (z. B. nach "AT&T")
+    text = re.sub(r"[ \t]+", " ", "".join(parser.parts))
+    text = re.sub(r" ?\n ?", "\n", text)
+    return re.sub(r"\n\s*\n+", "\n\n", text).strip()
 
 
 def _decode(data: str) -> str:
@@ -153,13 +171,20 @@ class GoogleAccounts:
         if not self.configured():
             raise GoogleNotConfigured(f"OAuth-Client fehlt: {self.client_file}")
         flow = InstalledAppFlow.from_client_secrets_file(str(self.client_file), SCOPES)
-        creds = flow.run_local_server(
-            port=0,
-            open_browser=True,
-            prompt="consent select_account",
-            authorization_prompt_message="Bitte im Browser mit dem gewünschten Google-Konto anmelden: {url}",
-            success_message="JARVIS ist verbunden. Du kannst dieses Fenster schließen.",
-        )
+        try:
+            creds = flow.run_local_server(
+                port=0,
+                open_browser=True,
+                prompt="consent select_account",
+                authorization_prompt_message="Bitte im Browser mit dem gewünschten Google-Konto anmelden: {url}",
+                success_message="JARVIS ist verbunden. Du kannst dieses Fenster schließen.",
+                timeout_seconds=LOGIN_TIMEOUT_S,
+            )
+        except AttributeError as exc:
+            # google-auth-oauthlib meldet eine abgelaufene Wartezeit nur indirekt.
+            raise TimeoutError(
+                "Keine Anmeldung im Browser innerhalb von 5 Minuten – bitte erneut versuchen"
+            ) from exc
         from googleapiclient.discovery import build
 
         profile = (
@@ -171,6 +196,27 @@ class GoogleAccounts:
         email = str(profile["emailAddress"])
         self._save(email, creds)
         return email
+
+    def save_client(self, raw: bytes) -> None:
+        """Prüft und speichert die OAuth-Client-Datei (Typ „Desktop-App“) aus der Google Cloud Console."""
+        try:
+            data = json.loads(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Das ist keine gültige JSON-Datei") from exc
+        if not isinstance(data, dict):
+            raise ValueError("Keine OAuth-Client-Datei von Google")
+        if "web" in data and "installed" not in data:
+            raise ValueError(
+                "Falscher Client-Typ: bitte in der Google Cloud Console als Anwendungstyp "
+                "„Desktop-App“ anlegen"
+            )
+        installed = data.get("installed")
+        if not isinstance(installed, dict) or not (
+            installed.get("client_id") and installed.get("client_secret")
+        ):
+            raise ValueError("Keine OAuth-Client-Datei vom Typ „Desktop-App“")
+        self.client_file.parent.mkdir(parents=True, exist_ok=True)
+        self.client_file.write_text(json.dumps(data), encoding="utf-8")
 
     def remove_account(self, email: str) -> bool:
         path = self.tokens_dir / f"{_safe_name(email)}.json"

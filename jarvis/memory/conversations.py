@@ -91,12 +91,12 @@ class ConversationStore:
         if channel:
             rows = self._db.query(
                 "SELECT * FROM conversations WHERE archived = 0 AND channel = ? "
-                "ORDER BY updated DESC LIMIT ?",
+                "ORDER BY updated DESC, rowid DESC LIMIT ?",
                 (channel, limit),
             )
         else:
             rows = self._db.query(
-                "SELECT * FROM conversations WHERE archived = 0 ORDER BY updated DESC LIMIT ?",
+                "SELECT * FROM conversations WHERE archived = 0 ORDER BY updated DESC, rowid DESC LIMIT ?",
                 (limit,),
             )
         return [dict(r) for r in rows]

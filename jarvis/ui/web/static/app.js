@@ -174,6 +174,7 @@ const ICONS = {
   send: '<path d="M3 11l18-8-8 18-2-7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
   speaker: '<path d="M4 9h4l5-4v14l-5-4H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M16 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="2"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  print: '<path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
 };
 const icon = (name) => {
   const span = document.createElement("span");
@@ -412,6 +413,7 @@ function appendMessage(container, message) {
     bubble.append(h("div", { class: "content", html: role === "user" ? esc(message.content).replace(/\n/g, "<br>") : md(message.content) }));
     if ((meta.images || []).length) bubble.append(h("div", { class: "msg-images" }, meta.images.map((img) => h("img", { src: imgUrl(img.url), title: img.caption || "", onclick: () => lightbox(img.url) }))));
     if (role === "assistant" && meta.model) bubble.append(metaLine(meta));
+    else if (role === "assistant" && message.content) bubble.append(h("div", { class: "meta" }, printButton()));
   }
   const el = h("div", { class: `msg ${role}` }, h("div", { class: "avatar" }, role === "user" ? "Du" : role === "error" ? "!" : "J"), bubble);
   container.querySelector(".empty")?.remove();
@@ -423,7 +425,34 @@ function appendMessage(container, message) {
 function metaLine(meta) {
   const cost = meta.subscription ? "Abo (kostenlos)" : meta.cost_usd ? `$${meta.cost_usd.toFixed(4)}` : "kostenlos";
   return h("div", { class: "meta" }, h("span", {}, meta.model), h("span", {}, `${meta.tokens_in || 0} → ${meta.tokens_out || 0} Tokens`), h("span", {}, cost),
-    (meta.fallbacks || []).length ? h("span", {}, `↪ Ausweichmodell (statt ${meta.fallbacks.join(", ")})`) : null);
+    (meta.fallbacks || []).length ? h("span", {}, `↪ Ausweichmodell (statt ${meta.fallbacks.join(", ")})`) : null,
+    printButton());
+}
+
+/* Drucken-Knopf unter einer JARVIS-Antwort; druckt nur diese eine Nachricht. */
+function printButton() {
+  return h("button", {
+    class: "print-btn", type: "button", title: "Diese Antwort drucken", "aria-label": "Diese Antwort drucken",
+    onclick: (event) => printMessage(event.currentTarget.closest(".msg")),
+  }, icon("print"), "Drucken");
+}
+
+/* Kopiert Text und Bilder der Antwort in einen eigenen Druckbereich (#print-root).
+ * Das Stylesheet blendet beim Drucken alles außer diesem Bereich aus. */
+function printMessage(msg) {
+  const content = msg?.querySelector(".content");
+  if (!content) return;
+  let root = document.getElementById("print-root");
+  if (!root) { root = h("div", { id: "print-root" }); document.body.append(root); }
+  const images = msg.querySelector(".msg-images");
+  show(root,
+    h("div", { class: "print-head" }, h("strong", {}, "J.A.R.V.I.S."), h("span", {}, new Date().toLocaleString("de-DE"))),
+    content.cloneNode(true),
+    images ? images.cloneNode(true) : null);
+  const cleanup = () => { document.body.classList.remove("printing"); root.replaceChildren(); window.removeEventListener("afterprint", cleanup); };
+  window.addEventListener("afterprint", cleanup);
+  document.body.classList.add("printing");
+  window.print();
 }
 
 async function toggleRecording(button, input, send) {
@@ -716,9 +745,49 @@ async function renderModels(view) {
 
 /* ------------------------------------------------------------------ Einrichtung */
 
+function googlePanel(google) {
+  const upload = h("input", { type: "file", accept: ".json,application/json", style: { width: "auto" } });
+  upload.addEventListener("change", async () => {
+    if (!upload.files.length) return;
+    const form = new FormData();
+    form.append("file", upload.files[0]);
+    try { await api("/api/google/client", { body: form }); toast("Gespeichert", "OAuth-Client hinterlegt – jetzt Gmail-Konten verbinden."); route(); }
+    catch (error) { toast("Fehler", error.message, "error"); upload.value = ""; }
+  });
+  const addAccount = async () => {
+    try { await api("/api/google/accounts", { method: "POST" }); toast("Google-Anmeldung", "Im Browser öffnet sich die Google-Anmeldung – Konto wählen und zustimmen.", "info", 8000); }
+    catch (error) { toast("Fehler", error.message, "error"); }
+  };
+  const removeAccount = async (email) => {
+    if (!confirm(`${email} von JARVIS trennen?`)) return;
+    try { await api(`/api/google/accounts/${encodeURIComponent(email)}`, { method: "DELETE" }); route(); }
+    catch (error) { toast("Fehler", error.message, "error"); }
+  };
+  const steps = h("ol", { class: "howto" },
+    h("li", {}, "Öffne die ", h("a", { href: "https://console.cloud.google.com/projectcreate", target: "_blank", rel: "noopener noreferrer" }, "Google Cloud Console ↗"), " und lege ein Projekt „JARVIS“ an."),
+    h("li", {}, "Aktiviere die ", h("a", { href: "https://console.cloud.google.com/apis/library/gmail.googleapis.com", target: "_blank", rel: "noopener noreferrer" }, "Gmail API ↗"), " und die ", h("a", { href: "https://console.cloud.google.com/apis/library/calendar-json.googleapis.com", target: "_blank", rel: "noopener noreferrer" }, "Google Calendar API ↗"), "."),
+    h("li", {}, "Unter ", h("a", { href: "https://console.cloud.google.com/auth/overview", target: "_blank", rel: "noopener noreferrer" }, "Google Auth Platform ↗"), ": App-Name „JARVIS“, Zielgruppe „Extern“, deine Gmail-Adressen als Testnutzer – dann „App veröffentlichen“ (sonst läuft die Anmeldung nach 7 Tagen ab)."),
+    h("li", {}, "Unter „Clients“: Client erstellen → Anwendungstyp ", h("b", {}, "Desktop-App"), " → JSON herunterladen."),
+    h("li", {}, "Die heruntergeladene Datei hier hochladen:"));
+  return h("div", { class: "panel", style: { marginBottom: "18px" } }, h("h2", {}, "📧 Gmail & Kalender"),
+    google.configured
+      ? [
+          google.accounts.length
+            ? h("div", { class: "list" }, google.accounts.map((email) => h("div", { class: "item row" },
+                h("div", { class: "grow" }, h("div", { class: "title" }, email), email === google.calendar_account ? h("div", { class: "faint" }, "Kalender wird von diesem Konto gelesen") : null),
+                h("button", { class: "btn small", onclick: () => removeAccount(email) }, "Trennen"))))
+            : h("p", { class: "faint" }, "Noch kein Gmail-Konto verbunden."),
+          h("div", { class: "row", style: { marginTop: "12px" } },
+            h("button", { class: "btn primary", onclick: addAccount, disabled: google.login_running }, google.login_running ? "Anmeldung läuft im Browser …" : "+ Gmail-Konto verbinden"),
+            h("label", { class: "btn small" }, "OAuth-Datei ersetzen", Object.assign(upload, { style: "display:none" }))),
+        ]
+      : [h("p", { class: "faint" }, "Einmalig ca. 10 Minuten, kostenlos. Danach kannst du beliebig viele Gmail-Konten verbinden."), steps, upload]);
+}
+
 async function renderSetup(view) {
   const data = await api("/api/setup");
   const settings = await api("/api/settings");
+  const google = await api("/api/google").catch(() => null);
   const geminiKey = h("input", { type: "password", placeholder: "Gemini-API-Key einfügen (beginnt meist mit AIza…)" });
   const saveKey = async () => {
     if (!geminiKey.value.trim()) return;
@@ -737,6 +806,7 @@ async function renderSetup(view) {
       data.checks.map((c) => h("div", { class: "check" }, h("div", { class: "icon" }, c.ok ? "✅" : c.optional ? "⚪" : "⚠️"),
         h("div", { class: "grow" }, h("div", { class: "title" }, c.title, c.optional ? h("span", { class: "faint" }, "  (optional)") : null), h("div", { class: "muted" }, c.detail),
           !c.ok && c.hint ? h("div", { class: "faint" }, c.hint) : null, !c.ok ? extra[c.key] || null : null)))),
+    google ? googlePanel(google) : null,
     h("div", { class: "panel" }, h("h2", {}, "Gespeicherte Schlüssel"),
       h("table", {}, h("tbody", {}, Object.entries(settings.secrets).map(([name, source]) => h("tr", {}, h("td", { class: "mono" }, name),
         h("td", {}, source === "keyring" ? h("span", { class: "badge ok" }, "Credential Manager") : source === "env" ? h("span", { class: "badge info" }, ".env / Umgebung") : h("span", { class: "faint" }, "nicht gesetzt"))))))));
@@ -894,6 +964,8 @@ function connect() {
     }
     if (type === "project.updated" && state.page === "projects") setTimeout(route, 300);
     if ((type === "cards.changed" || type === "reminders.changed") && state.page === "overview") setTimeout(route, 300);
+    if (type === "google.account_added") { toast("Google verbunden", `${event.data.email} ist jetzt verbunden.`); if (state.page === "setup") setTimeout(route, 300); }
+    if (type === "google.error") { toast("Google-Anmeldung fehlgeschlagen", event.data.error, "error", 10000); if (state.page === "setup") setTimeout(route, 300); }
     if (type === "setup.pull") {
       const box = document.getElementById("pull-status");
       if (box) box.textContent = `${event.data.model} ${event.data.status || ""} ${event.data.percent != null ? `${event.data.percent} %` : ""}`;

@@ -195,7 +195,7 @@ async def test_job_runs_in_worktree_and_becomes_ready(app: JarvisApp, repo: Path
     result = manager.get(job["id"])
     assert result is not None
     assert result["status"] == "ready"
-    assert result["branch"].startswith(f"jarvis/verbesserung-{job['id']}-f-ge-eine-funktion")
+    assert result["branch"].startswith(f"jarvis/verbesserung-{job['id']}-fuege-eine-funktion")
     worktree = Path(result["worktree"])
     assert worktree == app.data_dir / "worktrees" / str(job["id"])
     assert (worktree / "mypkg" / "extra.py").is_file()
@@ -376,7 +376,7 @@ async def test_approve_merges_writes_changelog_marker_and_restarts(
 
     changelog = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
     assert changelog.startswith("# Changelog\n\n## Selbstverbesserungen\n\n- ")
-    assert f"#{job['id']} · {REQUEST} – Neue Funktion add3" in changelog
+    assert f"#{job['id']} · {REQUEST}\n  Neue Funktion add3\n" in changelog
     assert f"(Branch `{job['branch']}`, Tests bestanden)" in changelog
     assert changelog.index("## Selbstverbesserungen") < changelog.index("## 1.0.0")
 
@@ -511,7 +511,9 @@ def test_changelog_entries_are_added_newest_first(app: JarvisApp, repo: Path) ->
     )
     text = (repo / "CHANGELOG.md").read_text(encoding="utf-8")
     assert text.startswith("# Changelog\n\n## Selbstverbesserungen\n\n")
-    assert text.index("#2 · Zweite – Kurz:** gut") < text.index("#1 · Erste (Branch `b1`")
+    assert text.index("#2 · Zweite\n  Kurz: gut\n  (Branch `b2`") < text.index(
+        "#1 · Erste\n  (Branch `b1`"
+    )
 
 
 # ---------------------------------------------------------------------- Verwerfen & Abbrechen

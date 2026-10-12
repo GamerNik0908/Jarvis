@@ -88,11 +88,13 @@ class MemoryStore:
         text = text.strip()
         if not text:
             raise ValueError("Leerer Eintrag")
-        existing = self._db.query_one(
-            "SELECT id FROM memories WHERE lower(text) = lower(?)", (text,)
-        )
-        if existing is not None:
-            return int(existing[0])
+        # SQLite-lower() kennt nur ASCII – Umlaute ("Äpfel"/"äpfel") daher in Python vergleichen.
+        folded = text.lower()
+        for row in self._db.query(
+            "SELECT id, text FROM memories WHERE length(text) = ?", (len(text),)
+        ):
+            if str(row["text"]).lower() == folded:
+                return int(row["id"])
         vectors = await self._embed([text])
         blob = _pack(vectors[0]) if vectors else None
         return self._db.execute(

@@ -101,18 +101,24 @@ def run_checks(app: JarvisApp) -> list[CheckItem]:
             ", ".join(accounts)
             if accounts
             else ("OAuth-Client fehlt" if not google.configured() else "kein Konto verbunden"),
-            hint="Anleitung im README (Abschnitt Gmail & Kalender), dann 'jarvis google add'",
+            hint="Anleitung unten im Abschnitt „Gmail & Kalender“ (oder im README)",
             optional=True,
         )
     )
     voice_ok = all(_module(m) for m in ("faster_whisper", "sounddevice", "openwakeword"))
+    voice_on = app.config.voice.enabled
     items.append(
         CheckItem(
             "voice",
             "Sprachsteuerung",
-            voice_ok and app.config.voice.enabled,
-            "Pakete vorhanden" if voice_ok else "Sprachpakete fehlen",
-            hint="Installationsskript erneut ausführen",
+            voice_ok and voice_on,
+            "Sprachpakete fehlen"
+            if not voice_ok
+            else ("Pakete vorhanden" if voice_on else "in den Einstellungen ausgeschaltet"),
+            # Ist nur das Zuhören aus, hilft das Installationsskript nicht weiter.
+            hint="Installationsskript erneut ausführen"
+            if not voice_ok
+            else "Einstellungen → Sprache → „Hey Jarvis“ dauerhaft zuhören",
             optional=True,
         )
     )

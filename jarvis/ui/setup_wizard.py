@@ -144,8 +144,9 @@ async def run_setup(app: JarvisApp, console: Console) -> int:
 
     # 5) Google
     console.print(
-        "\n[bold]Gmail & Kalender[/] (optional): Anleitung im README, Abschnitt 'Gmail & Kalender'. "
-        f"OAuth-Datei: {app.google.client_file}"
+        "\n[bold]Gmail & Kalender[/] (optional): am einfachsten im Dashboard unter "
+        "[bold]Einrichtung → Gmail & Kalender[/] (Schritt-für-Schritt-Anleitung, Datei hochladen, "
+        f"Konten verbinden). Alternativ OAuth-Datei hierhin legen: {app.google.client_file}"
     )
     if app.google.configured():
         while await _yes(

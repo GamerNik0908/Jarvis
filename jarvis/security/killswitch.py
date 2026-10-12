@@ -70,7 +70,11 @@ class KillSwitch:
         except RuntimeError:
             running = None
         if loop is not None and running is not loop:
-            loop.call_soon_threadsafe(self._cancel_all)
+            try:
+                loop.call_soon_threadsafe(self._cancel_all)
+            except RuntimeError:
+                # Ereignisschleife schon geschlossen (JARVIS fährt herunter) – nichts mehr zu stoppen.
+                log.debug("Not-Aus nach dem Herunterfahren ausgelöst")
         else:
             self._cancel_all()
         self._events.publish("killswitch.engaged", {"reason": reason, "by": by})

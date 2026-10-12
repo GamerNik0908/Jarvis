@@ -186,6 +186,19 @@ async def test_static_files_need_no_token(anon: httpx.AsyncClient, path: str, mi
     assert mime in response.headers["content-type"]
 
 
+async def test_print_button_assets(anon: httpx.AsyncClient) -> None:
+    """Drucken-Knopf: Skript liefert Knopf + Druckbereich, Stylesheet blendet beim Drucken alles andere aus."""
+    script = (await anon.get("/static/app.js")).text
+    assert "function printButton" in script
+    assert "function printMessage" in script
+    assert "window.print()" in script
+    assert "print: '<path" in script  # Symbol ist definiert
+    css = (await anon.get("/static/style.css")).text
+    assert "@media print" in css
+    assert "body.printing > :not(#print-root)" in css
+    assert "#print-root { display: none; }" in css
+
+
 @pytest.mark.parametrize("path", ["/static/..%2Fserver.py", "/static/%2E%2E/server.py"])
 async def test_static_traversal_blocked(anon: httpx.AsyncClient, path: str) -> None:
     response = await anon.get(path)
@@ -1016,3 +1029,65 @@ def test_ws_receives_killswitch_and_confirmation_events(sync_client: TestClient)
         assert event["data"] == {"reason": "Dashboard", "by": "web"}
         sync_client.post("/api/killswitch", json={"engage": False}, headers=AUTH)
         assert ws.receive_json()["type"] == "killswitch.released"
+
+
+# ---------------------------------------------------------------------- Google-Einrichtung
+
+
+DESKTOP_CLIENT = (
+    b'{"installed": {"client_id": "x.apps.googleusercontent.com", "client_secret": "s"}}'
+)
+
+
+async def test_google_client_upload_validates_type(
+    client: httpx.AsyncClient, app: JarvisApp
+) -> None:
+    status = (await client.get("/api/google")).json()
+    assert status["configured"] is False and status["accounts"] == []
+
+    web_client = b'{"web": {"client_id": "x", "client_secret": "s"}}'
+    response = await client.post("/api/google/client", files={"file": ("c.json", web_client)})
+    assert response.status_code == 400 and "Desktop-App" in response.json()["detail"]
+    response = await client.post("/api/google/client", files={"file": ("c.json", b"kaputt")})
+    assert response.status_code == 400
+    assert not app.google.client_file.exists()
+
+    response = await client.post("/api/google/client", files={"file": ("c.json", DESKTOP_CLIENT)})
+    assert response.status_code == 200
+    assert app.google.configured()
+    assert (await client.get("/api/google")).json()["configured"] is True
+
+
+async def test_google_add_account_runs_login_in_background(
+    client: httpx.AsyncClient, app: JarvisApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert (await client.post("/api/google/accounts")).status_code == 409  # ohne OAuth-Datei
+    app.google.save_client(DESKTOP_CLIENT)
+    monkeypatch.setattr(app.google, "add_account", lambda: "nik@gmail.com")
+    with app.events.subscribe(types={"google.account_added", "google.error"}) as sub:
+        response = await client.post("/api/google/accounts")
+        assert response.status_code == 200 and response.json() == {"started": True}
+        event = await sub.get(limit_s=5)
+    assert event is not None and event.type == "google.account_added"
+    assert event.data["email"] == "nik@gmail.com"
+    assert (await client.get("/api/google")).json()["login_running"] is False
+
+
+async def test_google_login_error_is_reported(
+    client: httpx.AsyncClient, app: JarvisApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.google.save_client(DESKTOP_CLIENT)
+
+    def fail() -> str:
+        raise TimeoutError("Keine Anmeldung im Browser")
+
+    monkeypatch.setattr(app.google, "add_account", fail)
+    with app.events.subscribe(types={"google.error"}) as sub:
+        assert (await client.post("/api/google/accounts")).status_code == 200
+        event = await sub.get(limit_s=5)
+    assert event is not None and "Keine Anmeldung" in event.data["error"]
+
+
+async def test_google_remove_unknown_account(client: httpx.AsyncClient) -> None:
+    response = await client.delete("/api/google/accounts/nie@gmail.com")
+    assert response.status_code == 404

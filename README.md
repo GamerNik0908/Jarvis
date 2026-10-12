@@ -28,6 +28,8 @@ Das globale Budget steht auf **0 $** – kostenpflichtige Modelle sind damit har
   PC-Auslastung, Termine, ungelesene Mails pro Gmail-Konto, Erinnerungen, Projekte,
   Selbstverbesserungen, eigene Karten („Zeig mir dauerhaft den Bitcoin-Kurs“), Bildergalerie,
   Chat, Protokoll, Modelle und Einstellungen.
+- **Drucken**: Unter jeder Antwort im Chat sitzt ein **Drucken**-Knopf – druckt nur diese
+  Antwort (auch „Als PDF speichern“). Diese Funktion hat JARVIS übrigens selbst gebaut.
 - **Sprache**: „Hey Jarvis“ (offline erkannt), Spracherkennung mit Whisper lokal auf dem PC,
   Antworten per natürlicher Stimme. Im Dashboard zusätzlich ein Mikrofon-Knopf;
   Push-to-Talk mit **Strg+Alt+Leertaste**.
@@ -132,15 +134,16 @@ Google verlangt dafür einen eigenen, kostenlosen „OAuth-Client“. Einmalig:
    Eine Überprüfung durch Google ist für die private Nutzung nicht nötig.
 5. **Clients / Anmeldedaten → Client erstellen → Anwendungstyp „Desktop-App“** → Erstellen
    → **JSON herunterladen**.
-6. Die Datei umbenennen in `credentials.json` und hierhin kopieren:
-   `%LOCALAPPDATA%\Jarvis\google\credentials.json`
-   (in die Adresszeile des Explorers eintippen; Ordner ggf. anlegen).
-7. Pro Gmail-Konto einmal ausführen: `.\scripts\jarvis.cmd google add`
-   Im Browser das Konto wählen. Erscheint „Google hat diese App nicht überprüft“:
-   **Erweitert → Weiter zu JARVIS** – es ist ja deine eigene App.
+6. Im Dashboard unter **Einrichtung → Gmail & Kalender** die heruntergeladene Datei
+   hochladen.
+7. Dort **„+ Gmail-Konto verbinden“** klicken (für jedes Konto einmal). Im Browser das Konto
+   wählen. Erscheint „Google hat diese App nicht überprüft“: **Erweitert → Weiter zu JARVIS**
+   – es ist ja deine eigene App.
 
-Weitere Konten jederzeit mit `jarvis google add`, Übersicht mit `jarvis google list`,
-trennen mit `jarvis google remove <adresse>`. Der Kalender wird vom ersten Konto gelesen
+Alternativ ohne Dashboard: Datei als `%LOCALAPPDATA%\Jarvis\google\credentials.json`
+speichern und `.\scripts\jarvis.cmd google add` ausführen.
+
+Konten verwalten: im Dashboard oder mit `jarvis google add|list|remove`. Der Kalender wird vom ersten Konto gelesen
 (anderes Konto: `google.calendar_account` in den Einstellungen).
 
 ### ⭕ Ollama (lokale KI) – optional

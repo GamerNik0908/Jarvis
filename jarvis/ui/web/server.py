@@ -295,6 +295,9 @@ def create_web_app(
 
     @api.get("/api/setup")
     async def setup() -> dict[str, Any]:
+        # Frisch prüfen: z. B. Ollama oder die Claude-Anmeldung wurden evtl. gerade erst eingerichtet.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(app.startup_probes(), 20)
         return {
             "checks": [c.to_dict() for c in run_checks(app)],
             "missing_models": missing_ollama_models(app),
@@ -332,6 +335,64 @@ def create_web_app(
 
         spawn(pull_all(), name="ollama-pull")
         return {"models": missing}
+
+    # ------------------------------------------------------------------ Google (Gmail & Kalender)
+
+    google_login: dict[str, bool] = {"busy": False}
+
+    @api.get("/api/google")
+    async def google_status() -> dict[str, Any]:
+        google = app.google
+        accounts = google.accounts()
+        return {
+            "configured": google.configured(),
+            "accounts": accounts,
+            "calendar_account": app.config.google.calendar_account or (accounts[:1] or [""])[0],
+            "client_file": str(google.client_file),
+            "login_running": google_login["busy"],
+        }
+
+    @api.post("/api/google/client")
+    async def google_client(file: UploadFile = File(...)) -> dict[str, bool]:  # noqa: B008 - FastAPI-Muster
+        raw = await file.read(256_000)
+        try:
+            await asyncio.to_thread(app.google.save_client, raw)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        log.info("Google-OAuth-Client gespeichert")
+        return {"ok": True}
+
+    @api.post("/api/google/accounts")
+    async def google_add() -> dict[str, bool]:
+        if not app.google.configured():
+            raise HTTPException(409, "Zuerst die OAuth-Client-Datei hochladen")
+        if google_login["busy"]:
+            raise HTTPException(409, "Eine Anmeldung läuft bereits – bitte im Browser abschließen")
+        google_login["busy"] = True
+
+        async def login() -> None:
+            try:
+                email = await asyncio.to_thread(app.google.add_account)
+            except Exception as exc:
+                log.warning("Google-Anmeldung fehlgeschlagen: %s", exc)
+                app.events.publish("google.error", {"error": str(exc)})
+            else:
+                cache.clear()
+                app.events.publish("google.account_added", {"email": email})
+                app.notify("Google verbunden", f"{email} ist jetzt mit JARVIS verbunden.")
+            finally:
+                google_login["busy"] = False
+
+        spawn(login(), name="google-login")
+        return {"started": True}
+
+    @api.delete("/api/google/accounts/{email}")
+    async def google_remove(email: str) -> dict[str, bool]:
+        removed = await asyncio.to_thread(app.google.remove_account, email)
+        if not removed:
+            raise HTTPException(404, "Konto nicht verbunden")
+        cache.clear()
+        return {"removed": True}
 
     # ------------------------------------------------------------------ Chat
 

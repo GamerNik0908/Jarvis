@@ -57,12 +57,14 @@ Regeln:
 - Neue Fähigkeiten als Plugin in jarvis/plugins/ (siehe jarvis/plugins/base.py, @tool-Dekorator).
   Riskante Aktionen bekommen level=Level.CONFIRM.
 - Schreibe Tests in tests/ und führe sie aus: python -m pytest -q
+  Shell-Befehle einzeln und ohne cd, Pipes, && oder Umleitungen ausführen – nur so sind sie
+  freigegeben (erlaubt: python -m pytest/ruff/mypy, node --check, git status/diff/log).
 - Ändere NIEMALS: jarvis/security/, jarvis/self_improve/, jarvis/core/supervisor.py, .env,
   config.local.yaml und in config.yaml die Abschnitte security, budget, secrets, self_improve.
   Solche Änderungen werden automatisch verworfen.
 - Installiere keine Pakete. Neue Abhängigkeiten nur in requirements.txt (und pyproject.toml)
   eintragen – JARVIS installiert sie nach Freigabe des Benutzers.
-- Committe nicht selbst; JARVIS übernimmt das.
+- Committe nicht selbst und bearbeite CHANGELOG.md nicht – JARVIS übernimmt beides.
 - Beende deine Arbeit mit einer kurzen deutschen Zusammenfassung für den Benutzer: was neu ist,
   wie man es benutzt, was getestet wurde."""
 
@@ -81,9 +83,11 @@ DEV_ALLOWED_TOOLS = [
     "Bash(git status *)",
     "Bash(git diff *)",
     "Bash(git log *)",
+    "Bash(node --check *)",
     "PowerShell(python -m pytest *)",
     "PowerShell(python -m ruff *)",
     "PowerShell(python -m mypy *)",
+    "PowerShell(node --check *)",
 ]
 
 SELF_CHECK_PROMPT = """Prüfe JARVIS auf sinnvolle Verbesserungen. Du darfst nur lesen.
@@ -97,8 +101,11 @@ vor neuen Funktionen). Antworte NUR mit JSON:
 Wenn es nichts Sinnvolles gibt: []"""
 
 
+_UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+
 def _slug(text: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", text.lower().translate(_UMLAUTS)).strip("-")
     return slug[:30] or "aenderung"
 
 
@@ -447,7 +454,7 @@ class ImprovementManager:
                             kind=result.error_kind or "unknown",
                         )
                     for denial in result.permission_denials[:5]:
-                        self._log(job_id, f"⛔ Nicht erlaubt: {denial}")
+                        self._log(job_id, f"⛔ Nicht erlaubt: {_describe_denial(denial)}")
         finally:
             if buffer.strip():
                 self._log(job_id, f"💬 {buffer.strip()}")
@@ -597,10 +604,11 @@ class ImprovementManager:
         text = path.read_text(encoding="utf-8") if path.is_file() else "# Changelog\n"
         summary = (job.get("summary") or "").strip().splitlines()
         first = next((line.strip("#*- ").strip() for line in summary if line.strip()), "")
+        first = re.sub(r"\*\*|__|`", "", first)
         entry = (
-            f"- {datetime.now():%Y-%m-%d} · #{job['id']} · {job['request'][:120]}"
-            + (f" – {first[:160]}" if first else "")
-            + f" (Branch `{job['branch']}`, Tests bestanden)\n"
+            f"- {datetime.now():%Y-%m-%d} · #{job['id']} · {_shorten(job['request'], 120)}"
+            + (f"\n  {_shorten(first, 240)}" if first else "")
+            + f"\n  (Branch `{job['branch']}`, Tests bestanden)\n"
         )
         heading = "## Selbstverbesserungen"
         if heading in text:
@@ -684,6 +692,24 @@ class ImprovementManager:
                 f"Werkzeug {entry['tool']} fehlgeschlagen: {str(entry.get('result'))[:200]}"
             )
         return "\n".join(lines[-40:])
+
+
+def _shorten(text: str, limit: int) -> str:
+    """Kürzt an einer Wortgrenze und hängt „…“ an."""
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(",;:–- ")
+    return f"{cut} …"
+
+
+def _describe_denial(denial: Any) -> str:
+    """Abgelehnter Werkzeugaufruf von Claude Code in lesbarer Form."""
+    if not isinstance(denial, Mapping):
+        return str(denial)[:200]
+    name = str(denial.get("tool_name") or "?")
+    details = denial.get("tool_input")
+    return f"{name}: {_describe_tool(details) if isinstance(details, Mapping) else ''}".rstrip(": ")
 
 
 def _describe_tool(data: Mapping[str, Any]) -> str:
