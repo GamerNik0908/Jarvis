@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-assistant"
+version = "0.1.0"
+description = "JARVIS - persoenlicher KI-Assistent fuer Windows 11"
+readme = "README.md"
+requires-python = ">=3.11"
+# Muss mit requirements.txt uebereinstimmen.
+dependencies = [
+    "anthropic>=1.13,<2",
+    "pydantic>=2.7,<3",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+    "keyring>=25.0",
+    "psutil>=6.0",
+    "rich>=13.7",
+    "prompt_toolkit>=3.0.43",
+    "platformdirs>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML",
+]
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+# Weitere KI-Anbieter koennen sich ueber diese Entry-Point-Gruppe registrieren:
+# [project.entry-points."jarvis.providers"]
+# mein_anbieter = "mein_paket.provider:MeinProvider"
+
+[tool.setuptools.packages.find]
+include = ["jarvis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "ASYNC"]
+ignore = [
+    "RUF001",  # deutsche Typografie (z. B. Gedankenstriche) in Strings ist gewollt
+    "RUF002",
+    "RUF003",
+]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["jarvis"]
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["keyring.*", "psutil.*"]
+ignore_missing_imports = true

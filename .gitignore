@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Umgebungen
+.venv/
+venv/
+
+# Secrets und lokale Einstellungen - niemals committen
+.env
+config.local.yaml
+
+# Werkzeuge
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Laufzeitdaten (falls data_dir auf einen Ordner im Projekt zeigt)
+data/
+*.log
+*.db
+*.db-wal
+*.db-shm
+
+# Editoren / Betriebssystem
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store

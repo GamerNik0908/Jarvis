@@ -1,0 +1,13 @@
+# JARVIS - Laufzeitabhaengigkeiten (Phase 1)
+# Installation:  pip install -r requirements.txt
+# Spaetere Phasen ergaenzen hier weitere Pakete (Ollama-Client, ChromaDB, Whisper, ...).
+
+anthropic>=1.13,<2        # Claude (Anthropic API)
+pydantic>=2.7,<3          # Validierung von config.yaml
+PyYAML>=6.0               # YAML-Parser
+python-dotenv>=1.0        # .env-Datei laden
+keyring>=25.0             # Windows Credential Manager fuer API-Keys
+psutil>=6.0               # CPU/RAM/Datentraeger
+rich>=13.7                # Terminal-Ausgabe
+prompt_toolkit>=3.0.43    # Eingabezeile mit Verlauf
+platformdirs>=4.2         # %LOCALAPPDATA%\Jarvis als Datenordner
