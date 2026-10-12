@@ -111,7 +111,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _configure_stdio() -> None:
-    """UTF-8-Ausgabe unter Windows, auch wenn die Ausgabe umgeleitet wird."""
+    """Benutzbare Standard-Streams und UTF-8-Ausgabe unter Windows.
+
+    Unter ``pythonw.exe`` (Desktop-Verknüpfung, Autostart, Supervisor und Dienst) sind
+    ``sys.stdout``/``sys.stderr`` ``None``. Bibliotheken wie uvicorn (``sys.stdout.isatty()``
+    beim Einrichten des Loggings) oder tqdm (Fortschritt beim Modell-Download) stürzen dann
+    ab – deshalb schreiben sie in diesem Fall nach ``os.devnull``. Protokolliert wird
+    ohnehin in die Logdatei.
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115 – bis Prozessende
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115 – bis Prozessende
     if sys.platform != "win32":
         return
     for stream in (sys.stdout, sys.stderr):

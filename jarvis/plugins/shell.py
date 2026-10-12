@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import re
 import shutil
 import subprocess
 from typing import Any
 
+from jarvis.core.tasks import kill_process_tree
 from jarvis.plugins.base import ToolContext, ToolResult, obj, tool
 from jarvis.security.permissions import Level
 
@@ -68,6 +70,8 @@ async def powershell_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         "-NonInteractive",
         "-Command",
         command,
+        # Keine geerbte Eingabe – PowerShell wartet sonst ggf. auf eine offene stdin-Pipe.
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=str(ctx.app.workspace),
@@ -76,10 +80,15 @@ async def powershell_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:
-        proc.kill()
+        # Den ganzen Prozessbaum beenden – unter Windows liefen von PowerShell gestartete
+        # Programme sonst weiter.
+        kill_process_tree(proc.pid)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(proc.wait(), 5)
         return ToolResult.error(f"Abgebrochen nach {timeout} s")
-    text = out.decode("utf-8", "replace").strip()
-    error = err.decode("utf-8", "replace").strip()
+    # utf-8-sig: verträgt ein BOM am Anfang, falls PowerShell eines voranstellt.
+    text = out.decode("utf-8-sig", "replace").strip()
+    error = err.decode("utf-8-sig", "replace").strip()
     body = text or "(keine Ausgabe)"
     if error:
         body += f"\n[Fehlerausgabe]\n{error}"

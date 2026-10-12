@@ -12,18 +12,54 @@
 from __future__ import annotations
 
 import os
+import re
 from fnmatch import fnmatch
 from pathlib import Path
 
+import platformdirs
+
 from jarvis.core.config import SecurityConfig
 from jarvis.security.permissions import Level
+
+#: ``~/<Name>`` → platformdirs-Funktion für den echten Benutzerordner.
+_KNOWN_FOLDERS = {
+    "desktop": "user_desktop_dir",
+    "documents": "user_documents_dir",
+    "dokumente": "user_documents_dir",
+    "downloads": "user_downloads_dir",
+    "pictures": "user_pictures_dir",
+    "bilder": "user_pictures_dir",
+    "music": "user_music_dir",
+    "musik": "user_music_dir",
+    "videos": "user_videos_dir",
+}
+
+
+def expand_user(text: str) -> Path:
+    """Wie ``Path(text).expanduser()``, nur zeigen ``~/Desktop``, ``~/Documents`` … auf die
+    echten Ordner.
+
+    Unter Windows 11 liegen Desktop, Dokumente und Bilder bei aktiver OneDrive-Sicherung in
+    ``%USERPROFILE%\\OneDrive\\…`` – ``%USERPROFILE%\\Documents`` ist dann ein anderer, meist
+    leerer Ordner, in dem der Benutzer seine Dateien nicht findet.
+    """
+    parts = re.split(r"[\\/]+", text, maxsplit=2)
+    if len(parts) >= 2 and parts[0] == "~":
+        getter = _KNOWN_FOLDERS.get(parts[1].lower())
+        if getter is not None:
+            try:
+                folder = Path(getattr(platformdirs, getter)())
+            except Exception:  # Ordner nicht ermittelbar → wie bisher
+                return Path(text).expanduser()
+            return folder.joinpath(*parts[2:])
+    return Path(text).expanduser()
 
 
 def _expand(raw: str, workspace: Path) -> Path:
     if raw.startswith("@workspace"):
         rest = raw[len("@workspace") :].lstrip("/\\")
         return (workspace / rest).resolve()
-    return Path(os.path.expandvars(raw)).expanduser().resolve()
+    return expand_user(os.path.expandvars(raw)).resolve()
 
 
 def _inside(path: Path, parent: Path) -> bool:
@@ -59,7 +95,7 @@ class PathPolicy:
     def resolve(self, raw: str) -> Path:
         """Relativ angegebene Pfade beziehen sich auf den Arbeitsordner."""
         text = os.path.expandvars(raw.strip().strip('"'))
-        path = Path(text).expanduser()
+        path = expand_user(text)
         if not path.is_absolute():
             path = self.workspace / path
         return path.resolve()

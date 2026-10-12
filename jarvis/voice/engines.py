@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -31,6 +32,8 @@ class SpeechToText:
         self.compute_type = compute_type
         self.language = language
         self._model: Any = None
+        #: Gerät, auf dem das geladene Modell tatsächlich läuft ("cuda"/"cpu").
+        self._loaded_device: str | None = None
         self._lock = threading.Lock()
 
     def _load(self) -> Any:
@@ -46,15 +49,22 @@ class SpeechToText:
                 self._model = WhisperModel(
                     self.model_name, device=device, compute_type=self.compute_type
                 )
+                self._loaded_device = device
             except Exception as exc:  # CUDA-Bibliotheken fehlen häufig → CPU
                 if device == "cpu":
                     raise
                 log.warning("Whisper auf GPU nicht möglich (%s) – nutze CPU", exc)
-                self._model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+                self._load_cpu()
             return self._model
 
-    def transcribe(self, audio: np.ndarray | str | io.BytesIO) -> str:
-        model = self._load()
+    def _load_cpu(self) -> None:
+        """Lädt das Modell auf der CPU (der Aufrufer hält ``_lock``)."""
+        from faster_whisper import WhisperModel
+
+        self._model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
+        self._loaded_device = "cpu"
+
+    def _run(self, model: Any, audio: np.ndarray | str | io.BytesIO) -> str:
         segments, _info = model.transcribe(
             audio,
             language=self.language,
@@ -63,6 +73,23 @@ class SpeechToText:
             condition_on_previous_text=False,
         )
         return " ".join(segment.text.strip() for segment in segments).strip()
+
+    def transcribe(self, audio: np.ndarray | str | io.BytesIO) -> str:
+        model = self._load()
+        try:
+            return self._run(model, audio)
+        except RuntimeError as exc:
+            # Fehlen cuBLAS/cuDNN (unter Windows häufig: die CTranslate2-Pakete bringen sie
+            # nicht mit), lädt das Modell trotzdem – der Fehler kommt erst beim Erkennen,
+            # weil die Segmente erst beim Durchlaufen berechnet werden. → einmalig auf CPU.
+            if self._loaded_device == "cpu":
+                raise
+            log.warning("Whisper auf GPU fehlgeschlagen (%s) – nutze CPU", exc)
+            with self._lock:
+                if self._loaded_device != "cpu":
+                    self._load_cpu()
+                model = self._model
+            return self._run(model, audio)
 
     def transcribe_bytes(self, data: bytes, suffix: str = ".webm") -> str:
         # Selbst decodieren statt faster-whispers decode_audio: dessen PyAV-Aufruf passt nicht
@@ -118,6 +145,13 @@ class TextToSpeech:
 
     @staticmethod
     def _sapi(text: str) -> bytes:
+        if sys.platform == "win32":
+            # SAPI läuft über COM, und COM muss in jedem Thread initialisiert sein – sonst
+            # "CoInitialize has not been called". ``asyncio.to_thread`` nutzt wechselnde
+            # Pool-Threads; ein erneuter Aufruf im selben Thread ist unschädlich.
+            import ctypes
+
+            ctypes.windll.ole32.CoInitializeEx(None, 0x2)  # COINIT_APARTMENTTHREADED
         import pyttsx3
 
         engine = pyttsx3.init()

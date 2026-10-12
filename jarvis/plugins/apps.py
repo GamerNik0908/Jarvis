@@ -67,7 +67,8 @@ def start_apps() -> list[dict[str, str]]:
             ],
             capture_output=True,
             text=True,
-            encoding="utf-8",
+            # utf-8-sig: ein vorangestelltes BOM würde json.loads sonst scheitern lassen.
+            encoding="utf-8-sig",
             errors="replace",
             timeout=20,
             creationflags=_creationflags(),

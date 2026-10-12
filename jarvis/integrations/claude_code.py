@@ -33,6 +33,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from jarvis.core.tasks import kill_process_tree
+
 log = logging.getLogger(__name__)
 
 #: Ab dieser Version kennt Claude Code ``--permission-prompts none``.
@@ -185,7 +187,7 @@ class ClaudeCodeCLI:
         try:
             out, err = await asyncio.wait_for(proc.communicate(), limit_s)
         except TimeoutError:
-            proc.kill()
+            kill_process_tree(proc.pid)
             raise ClaudeCodeError("Claude Code antwortet nicht", kind="timeout") from None
         return (
             proc.returncode or 0,
@@ -348,9 +350,15 @@ async def _drain(stream: asyncio.StreamReader | None) -> str:
 
 async def _terminate(proc: asyncio.subprocess.Process) -> None:
     try:
-        proc.terminate()
+        if sys.platform == "win32":
+            # terminate() ist unter Windows ohnehin hart und beendet keine Kindprozesse –
+            # node.exe hinter claude.cmd oder die MCP-Brücke liefen sonst weiter.
+            kill_process_tree(proc.pid)
+        else:
+            proc.terminate()
         await asyncio.wait_for(proc.wait(), 5)
     except (ProcessLookupError, TimeoutError):
+        kill_process_tree(proc.pid)
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
     except Exception:  # pragma: no cover - Aufräumen darf nie selbst fehlschlagen
