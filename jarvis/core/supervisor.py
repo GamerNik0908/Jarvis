@@ -94,6 +94,19 @@ def service_command(config_path: str | None) -> list[str]:
     return args
 
 
+def _wait_interruptible(proc: subprocess.Popen[bytes]) -> int:
+    """Wartet auf das Prozessende, bleibt dabei aber für Strg+C erreichbar.
+
+    Unter Windows blockiert ``proc.wait()`` ohne Timeout in ``WaitForSingleObject(INFINITE)``
+    – ein KeyboardInterrupt käme erst an, wenn der Dienst von selbst endet.
+    """
+    while True:
+        try:
+            return proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            continue
+
+
 def supervise(repo: Path, data_dir: Path, *, config_path: str | None = None) -> int:
     """Endlosschleife des Supervisors. Liefert den Exit-Code für den Prozess."""
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +123,7 @@ def supervise(repo: Path, data_dir: Path, *, config_path: str | None = None) -> 
             creationflags=int(getattr(subprocess, "CREATE_NO_WINDOW", 0)),
         )
         try:
-            code = proc.wait()
+            code = _wait_interruptible(proc)
         except KeyboardInterrupt:
             proc.terminate()
             try:

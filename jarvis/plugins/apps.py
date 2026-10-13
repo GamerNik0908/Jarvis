@@ -105,7 +105,7 @@ def find_app(name: str, apps: list[dict[str, str]]) -> dict[str, str] | None:
 
 def launch(target: str) -> None:
     if sys.platform == "win32":
-        os.startfile(target)  # type: ignore[attr-defined]  # nur unter Windows vorhanden
+        os.startfile(target)  # type: ignore[attr-defined,unused-ignore]  # nur unter Windows
     elif sys.platform == "darwin":
         subprocess.Popen(["open", target])
     else:

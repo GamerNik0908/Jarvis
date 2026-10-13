@@ -23,6 +23,7 @@ import psutil
 import pytest
 
 from jarvis import cli
+from jarvis.core import supervisor
 from jarvis.core.config import SecurityConfig
 from jarvis.core.tasks import kill_process_tree
 from jarvis.plugins.base import ToolContext
@@ -59,6 +60,41 @@ def test_configure_stdio_keeps_existing_streams() -> None:
     before = (sys.stdout, sys.stderr)
     cli._configure_stdio()
     assert (sys.stdout, sys.stderr) == before
+
+
+class _FakeServiceProcess:
+    """Dienst-Prozess, der zweimal "noch läuft" meldet und dann Strg+C erlebt."""
+
+    calls: ClassVar[list[tuple[Any, ...]]] = []
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+    def wait(self, timeout: float | None = None) -> int:
+        _FakeServiceProcess.calls.append(("wait", timeout))
+        if timeout is None:
+            raise AssertionError(
+                "wait() ohne Timeout ist unter Windows nicht per Strg+C abbrechbar"
+            )
+        waits = sum(1 for call in _FakeServiceProcess.calls if call[0] == "wait")
+        if waits == 1:
+            raise subprocess.TimeoutExpired("jarvis service", timeout)
+        if waits == 2:
+            raise KeyboardInterrupt
+        return 0
+
+    def terminate(self) -> None:
+        _FakeServiceProcess.calls.append(("terminate",))
+
+    def kill(self) -> None:
+        _FakeServiceProcess.calls.append(("kill",))
+
+
+def test_supervisor_reacts_to_ctrl_c(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeServiceProcess.calls = []
+    monkeypatch.setattr(supervisor.subprocess, "Popen", _FakeServiceProcess)
+    assert supervisor.supervise(tmp_path, tmp_path / "data") == 0
+    assert _FakeServiceProcess.calls == [("wait", 1), ("wait", 1), ("terminate",), ("wait", 10)]
 
 
 # ------------------------------------------------------------------ Whisper GPU → CPU
@@ -218,6 +254,20 @@ def test_policy_uses_real_documents_folder(onedrive: Path, tmp_path: Path) -> No
     # Der Standardordner aus config.yaml ist der echte (umgeleitete) Dokumente-Ordner.
     assert policy.write_level(target, overwrite=False) is Level.AUTO
     assert policy.write_level(policy.resolve("~/Desktop/x.txt"), overwrite=False) is (Level.CONFIRM)
+
+
+async def test_agent_prompt_names_real_desktop_and_documents(
+    onedrive: Path, config_file: Path
+) -> None:
+    from jarvis.core.app import JarvisApp
+
+    app = JarvisApp.bootstrap(config_file, role="test", detect=False)
+    try:
+        system = await app.agent.system_prompt("Leg das auf den Desktop", source="chat")
+    finally:
+        await app.aclose()
+    assert f"Desktop: {onedrive / 'Desktop'}" in system
+    assert f"Dokumente: {onedrive / 'Dokumente'}" in system
 
 
 # ------------------------------------------------------------------ Windows-Pfadvergleiche

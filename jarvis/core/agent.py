@@ -23,6 +23,7 @@ from jarvis.core.types import TaskKind
 from jarvis.plugins.base import ToolContext, ToolResult
 from jarvis.router.base import ChatMessage, ChatResponse, ToolSpec
 from jarvis.router.errors import NoModelAvailableError, RouterError
+from jarvis.security.paths import expand_user
 
 if TYPE_CHECKING:
     from jarvis.core.app import JarvisApp
@@ -141,7 +142,9 @@ class Agent:
             parts.append(TOOL_GUIDE)
             parts.append(
                 f"Dein Arbeitsordner (dort darfst du frei Dateien anlegen): {self.app.workspace}\n"
-                f"Benutzerordner: {Path.home()}"
+                f"Benutzerordner: {Path.home()}\n"
+                # Echte Pfade: Bei OneDrive-Sicherung liegen sie nicht unter dem Benutzerordner.
+                f"Desktop: {expand_user('~/Desktop')} · Dokumente: {expand_user('~/Documents')}"
             )
         if source == "voice":
             parts.append(VOICE_GUIDE)

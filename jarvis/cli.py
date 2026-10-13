@@ -256,24 +256,60 @@ def _cmd_start(loaded: LoadedConfig, args: argparse.Namespace, console: Console)
         flags = int(getattr(subprocess, "DETACHED_PROCESS", 0)) | int(
             getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         )
-    subprocess.Popen(
-        command,
-        cwd=str(PROJECT_ROOT),
-        creationflags=flags,
-        close_fds=True,
-        start_new_session=sys.platform != "win32",
-    )
-    console.print("JARVIS startet im Hintergrund …")
-    for _ in range(90):
+    logs = loaded.data_dir() / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    start_log = logs / "start.log"
+    # Alles, was der Hintergrundprozess vor dem eigenen Logging ausgibt (z. B. ein Absturz beim
+    # Import), landet hier – sonst wäre ein Startfehler unter pythonw.exe unsichtbar.
+    with start_log.open("w", encoding="utf-8") as output:
+        process = subprocess.Popen(
+            command,
+            cwd=str(PROJECT_ROOT),
+            creationflags=flags,
+            close_fds=True,
+            start_new_session=sys.platform != "win32",
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+        )
+    console.print("JARVIS startet im Hintergrund … (beim ersten Start bis zu 2 Minuten)")
+    for _ in range(240):
         if _service_running(loaded):
             console.print(f"[green]Bereit:[/] {url}  (das Fenster öffnet sich automatisch)")
             return EXIT_OK
+        if process.poll() is not None:
+            break
         time.sleep(0.5)
-    console.print(
-        "[yellow]JARVIS startet noch – Details in den Logdateien:[/] "
-        + str(loaded.data_dir() / "logs")
-    )
+    _report_start_problem(console, logs, stopped=process.poll() is not None)
     return EXIT_ERROR
+
+
+def _tail(path: Path, lines: int) -> str:
+    try:
+        return "\n".join(path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:])
+    except OSError:
+        return ""
+
+
+def _report_start_problem(console: Console, logs: Path, *, stopped: bool) -> None:
+    """Zeigt nach einem gescheiterten Start die letzten Logzeilen direkt im Terminal."""
+    if stopped:
+        console.print("[red]JARVIS konnte nicht starten.[/] Letzte Meldungen:")
+    else:
+        console.print("[yellow]JARVIS antwortet noch nicht.[/] Letzte Meldungen:")
+    shown = False
+    for name in ("start.log", "jarvis-supervisor.log", "jarvis-service.log"):
+        text = _tail(logs / name, 25).strip()
+        if text:
+            shown = True
+            console.print(f"[bold]── {name}[/]")
+            console.print(escape(text), highlight=False)
+    if not shown:
+        console.print("(keine Meldungen)")
+    console.print(
+        f"\nLogordner: {logs}\n"
+        "Zum Prüfen im Vordergrund starten (zeigt Fehler sofort): [bold].\\scripts\\jarvis.cmd run[/]"
+    )
 
 
 def _cmd_remote(loaded: LoadedConfig, path: str, console: Console, message: str) -> int:
