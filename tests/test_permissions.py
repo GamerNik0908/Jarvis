@@ -525,8 +525,9 @@ def test_write_levels(policy: PathPolicy, layout: dict[str, Path]) -> None:
     # Neue Dateien in freigegebenen Ordnern: ohne Rückfrage.
     assert policy.write_level(workspace / "neu.txt", overwrite=False) is Level.AUTO
     assert policy.write_level(allowed / "sub" / "neu.txt", overwrite=False) is Level.AUTO
-    # Überschreiben oder anderswo schreiben: mit Bestätigung.
-    assert policy.write_level(workspace / "alt.txt", overwrite=True) is Level.CONFIRM
+    # Überschreiben im eigenen Arbeitsordner: frei; in anderen Ordnern oder anderswo: Bestätigung.
+    assert policy.write_level(workspace / "alt.txt", overwrite=True) is Level.AUTO
+    assert policy.write_level(allowed / "alt.txt", overwrite=True) is Level.CONFIRM
     assert policy.write_level(layout["elsewhere"].resolve() / "x.txt", overwrite=False) is (
         Level.CONFIRM
     )
@@ -556,3 +557,21 @@ def test_symlink_to_secret_is_resolved(policy: PathPolicy, layout: dict[str, Pat
     except OSError:
         pytest.skip("Symlinks werden hier nicht unterstützt")
     assert policy.read_level(policy.resolve("harmlos.txt")) is Level.FORBIDDEN
+
+
+def test_overwrite_inside_workspace_needs_no_confirmation(tmp_path: Path) -> None:
+    """Eigene Zwischenergebnisse im Arbeitsordner darf JARVIS ohne Rückfrage überschreiben."""
+    from jarvis.core.config import SecurityConfig
+    from jarvis.security.paths import PathPolicy
+
+    workspace = tmp_path / "data" / "workspace"
+    workspace.mkdir(parents=True)
+    policy = PathPolicy(
+        SecurityConfig(write_allowed_dirs=[str(tmp_path / "docs")]),
+        workspace=workspace,
+        data_dir=tmp_path / "data",
+        project_root=tmp_path / "repo",
+    )
+    assert policy.write_level(workspace / "plan.md", overwrite=True) is Level.AUTO
+    assert policy.write_level(tmp_path / "docs" / "a.txt", overwrite=True) is Level.CONFIRM
+    assert policy.write_level(tmp_path / "docs" / "a.txt", overwrite=False) is Level.AUTO

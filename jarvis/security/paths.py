@@ -4,7 +4,8 @@
   JARVIS' eigene Zugangsdaten.
 * Neue Dateien schreiben: ohne Rückfrage nur im JARVIS-Arbeitsordner und in
   den Ordnern aus ``security.write_allowed_dirs``; sonst mit Bestätigung.
-* Überschreiben, Verschieben, Löschen: immer mit Bestätigung.
+* Überschreiben: im Arbeitsordner frei, sonst mit Bestätigung.
+* Verschieben, Löschen: immer mit Bestätigung.
 * Systemordner und JARVIS' eigener Programmcode: nie (Code ändert JARVIS nur
   über die Selbstverbesserung mit deiner Freigabe).
 """
@@ -120,6 +121,9 @@ class PathPolicy:
     def write_level(self, path: Path, *, overwrite: bool) -> Level:
         if self.is_protected(path) or self.is_secret(path):
             return Level.FORBIDDEN
+        if _inside(path, self.workspace):
+            # Eigener Arbeitsordner: JARVIS darf seine Zwischenergebnisse auch überschreiben.
+            return Level.AUTO
         if not overwrite and any(_inside(path, d) for d in self._write_dirs):
             return Level.AUTO
         return Level.CONFIRM
